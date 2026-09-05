@@ -1,0 +1,233 @@
+[
+  {
+    "configuration": {
+      "capAdd": [],
+      "capDrop": [],
+      "creationDate": "2026-09-02T07:35:35Z",
+      "dns": {
+        "nameservers": [],
+        "options": [],
+        "searchDomains": []
+      },
+      "id": "t5probe",
+      "image": {
+        "descriptor": {
+          "digest": "sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241",
+          "mediaType": "application/vnd.oci.image.index.v1+json",
+          "size": 5651
+        },
+        "reference": "docker.io/library/debian:bookworm-slim"
+      },
+      "initProcess": {
+        "arguments": [
+          "300"
+        ],
+        "environment": [
+          "PATH=redacted"
+        ],
+        "executable": "sleep",
+        "rlimits": [],
+        "supplementalGroups": [],
+        "terminal": false,
+        "user": {
+          "id": {
+            "gid": 0,
+            "uid": 0
+          }
+        },
+        "workingDirectory": "/"
+      },
+      "labels": {},
+      "mounts": [],
+      "networks": [
+        {
+          "network": "prison",
+          "options": {
+            "hostname": "t5probe",
+            "mtu": 1280
+          }
+        }
+      ],
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      },
+      "publishedPorts": [],
+      "publishedSockets": [],
+      "readOnly": false,
+      "resources": {
+        "cpuOverhead": 1,
+        "cpus": 4,
+        "memoryInBytes": 1073741824
+      },
+      "rosetta": false,
+      "runtimeHandler": "container-runtime-linux",
+      "ssh": false,
+      "sysctls": {},
+      "useInit": false,
+      "virtualization": false
+    },
+    "id": "t5probe",
+    "status": {
+      "networks": [
+        {
+          "hostname": "t5probe",
+          "ipv4Address": "192.168.128.4/24",
+          "ipv4Gateway": "192.168.128.1",
+          "ipv6Address": "fd53:f87a:1b9:1bf5:f460:38ff:fe63:8780/64",
+          "macAddress": "f6:60:38:63:87:80",
+          "mtu": 1280,
+          "network": "prison",
+          "variant": "reserved"
+        }
+      ],
+      "startedDate": "2026-09-02T07:35:36Z",
+      "state": "running"
+    }
+  },
+  {
+    "configuration": {
+      "capAdd": [
+        "CAP_NET_ADMIN"
+      ],
+      "capDrop": [],
+      "creationDate": "2026-08-26T06:59:13Z",
+      "dns": {
+        "nameservers": [],
+        "options": [],
+        "searchDomains": []
+      },
+      "id": "site-ccf8def7f413.prison",
+      "image": {
+        "descriptor": {
+          "annotations": {
+            "com.apple.containerization.image.name": "prison/box:84ab2e57f590",
+            "io.containerd.image.name": "docker.io/prison/box:84ab2e57f590",
+            "org.opencontainers.image.created": "2026-08-21T15:35:20Z",
+            "org.opencontainers.image.ref.name": "84ab2e57f590"
+          },
+          "digest": "sha256:315ba02ea4833b53c259b45aad5406eab83023a6df2a8de6521059b730dbcb7a",
+          "mediaType": "application/vnd.oci.image.index.v1+json",
+          "size": 375
+        },
+        "reference": "prison/box:84ab2e57f590"
+      },
+      "initProcess": {
+        "arguments": [
+          "sleep",
+          "infinity"
+        ],
+        "environment": [
+          "PRISON_EGRESS_PROXY_PORT=redacted",
+          "NO_PROXY=redacted",
+          "PRISON_SUDO=redacted",
+          "ANTHROPIC_API_KEY=redacted",
+          "LANG=redacted",
+          "HTTP_PROXY=redacted",
+          "HTTPS_PROXY=redacted",
+          "COREPACK_ENABLE_DOWNLOAD_PROMPT=redacted",
+          "http_proxy=redacted",
+          "no_proxy=redacted",
+          "PRISON_PERSIST_PATHS=redacted",
+          "PRISON_AUTH_PROXY_PORT=redacted",
+          "NODE_OPTIONS=redacted",
+          "PATH=redacted",
+          "CLAUDE_CODE_ORGANIZATION_UUID=redacted",
+          "https_proxy=redacted",
+          "CLAUDE_CODE_ACCOUNT_UUID=redacted",
+          "ANTHROPIC_BASE_URL=redacted",
+          "PRISON_SIGN_PROXY_PORT=redacted",
+          "CLAUDE_CONFIG_DIR=redacted"
+        ],
+        "executable": "/usr/local/bin/entrypoint.sh",
+        "rlimits": [],
+        "supplementalGroups": [],
+        "terminal": false,
+        "user": {
+          "id": {
+            "gid": 0,
+            "uid": 0
+          }
+        },
+        "workingDirectory": "/workspace"
+      },
+      "labels": {},
+      "mounts": [
+        {
+          "destination": "/workspace",
+          "options": [],
+          "source": "/Users/jazali/projects/site",
+          "type": {
+            "virtiofs": {}
+          }
+        },
+        {
+          "destination": "/workspace/node_modules",
+          "options": [],
+          "source": "/Users/jazali/.prison/ccf8def7f413/shadow/node_modules",
+          "type": {
+            "virtiofs": {}
+          }
+        },
+        {
+          "destination": "/home/dev/.claude",
+          "options": [],
+          "source": "/Users/jazali/.prison/ccf8def7f413/inmates/claude/home/.claude",
+          "type": {
+            "virtiofs": {}
+          }
+        },
+        {
+          "destination": "/workspace/.git/hooks",
+          "options": [
+            "ro"
+          ],
+          "source": "/Users/jazali/.prison/ccf8def7f413/empty",
+          "type": {
+            "virtiofs": {}
+          }
+        }
+      ],
+      "networks": [
+        {
+          "network": "prison",
+          "options": {
+            "hostname": "site-ccf8def7f413.prison.",
+            "mtu": 1280
+          }
+        }
+      ],
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      },
+      "publishedPorts": [
+        {
+          "containerPort": 8080,
+          "count": 1,
+          "hostAddress": "127.0.0.1",
+          "hostPort": 8080,
+          "proto": "tcp"
+        }
+      ],
+      "publishedSockets": [],
+      "readOnly": false,
+      "resources": {
+        "cpuOverhead": 1,
+        "cpus": 4,
+        "memoryInBytes": 8589934592
+      },
+      "rosetta": false,
+      "runtimeHandler": "container-runtime-linux",
+      "ssh": false,
+      "sysctls": {},
+      "useInit": false,
+      "virtualization": false
+    },
+    "id": "site-ccf8def7f413.prison",
+    "status": {
+      "networks": [],
+      "state": "stopped"
+    }
+  }
+]
