@@ -297,7 +297,6 @@ secret first:
 
 ```
 prison secret grant stripe
-
 ```
 
 For other ways of using the secrets manager, please refer to
