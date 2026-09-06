@@ -238,7 +238,7 @@ The per-project version sits in `~/.prison/projects/<id>/egress-allow`. When the
 global allowlist is empty or absent, the local config is unioned with the
 built-in set. If a global allowlist is present, then the local config will be
 unioned with it. The patterns in this file follows the rule of `[egress]`
-[above](####egress).
+[above](#egress).
 
 ## Environment variables
 
