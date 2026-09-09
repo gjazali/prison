@@ -1,8 +1,13 @@
 package guest
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"log"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,13 +20,25 @@ import (
 // newTestResolver returns a resolver with the given allow patterns.
 func newTestResolver(t *testing.T, patterns ...string) *resolver {
 	t.Helper()
+	return newLoggingTestResolver(t, io.Discard, patterns...)
+}
+
+// newLoggingTestResolver returns a resolver with the given allow
+// patterns.
+func newLoggingTestResolver(t *testing.T, sink io.Writer,
+	patterns ...string) *resolver {
+	t.Helper()
 	parsed, err := policy.ParseStrings(patterns)
 	if err != nil {
 		t.Fatal(err)
 	}
 	holder := newAllowListHolder()
 	holder.Replace(policy.NewAllowList(parsed))
-	return &resolver{sentinels: newSentinelAllocator(), allowList: holder}
+	return &resolver{
+		sentinels: newSentinelAllocator(),
+		allowList: holder,
+		logger:    log.New(sink, "", 0),
+	}
 }
 
 // ask sends a DNS query and returns the response code and addresses.
@@ -123,6 +140,54 @@ func TestResolverRefusesUnknownNamesAndOtherTypes(t *testing.T) {
 	header, err := parser.AnswerHeader()
 	if err != nil || header.TTL != sentinelTTL {
 		t.Fatalf("answer header %+v, %v; want TTL %d", header, err, sentinelTTL)
+	}
+}
+
+// TestResolverLogsEachRefusedNameOnce checks that a name matching
+// nothing is logged.
+func TestResolverLogsEachRefusedNameOnce(t *testing.T) {
+	var logged bytes.Buffer
+	r := newLoggingTestResolver(t, &logged, "example.test")
+	ask(t, r, "nope.test", dnsmessage.TypeA)
+	first := logged.String()
+	if !strings.Contains(first, "nope.test") ||
+		!strings.Contains(first, "egress.hosts") {
+		t.Fatalf("refusal logged as %q", first)
+	}
+	if lines := strings.Count(first, "\n"); lines != 1 {
+		t.Fatalf("one refusal wrote %d lines: %q", lines, first)
+	}
+	ask(t, r, "nope.test", dnsmessage.TypeA)
+	ask(t, r, "nope.test", dnsmessage.TypeAAAA)
+	ask(t, r, "NOPE.test", dnsmessage.TypeA)
+	ask(t, r, "example.test", dnsmessage.TypeA)
+	if again := logged.String(); again != first {
+		t.Fatalf("the log grew from %q to %q", first, again)
+	}
+	ask(t, r, "other.test", dnsmessage.TypeA)
+	if lines := strings.Count(logged.String(), "\n"); lines != 2 {
+		t.Fatalf("a second name wrote %d lines total", lines)
+	}
+}
+
+// TestResolverStopsNamingRefusalsAtTheCap checks that the resolver
+// falls silent after maximumReportedRefusals distinct names.
+func TestResolverStopsNamingRefusalsAtTheCap(t *testing.T) {
+	var logged bytes.Buffer
+	r := newLoggingTestResolver(t, &logged)
+	for i := 0; i < maximumReportedRefusals+10; i++ {
+		ask(t, r, fmt.Sprintf("host%d.test", i), dnsmessage.TypeA)
+	}
+	lines := strings.Count(logged.String(), "\n")
+	if lines != maximumReportedRefusals+1 {
+		t.Fatalf("%d lines logged, want %d", lines,
+			maximumReportedRefusals+1)
+	}
+	if !strings.Contains(logged.String(), "go unnamed") {
+		t.Fatal("the cap was reached without saying so")
+	}
+	if strings.Contains(logged.String(), "host1030.test") {
+		t.Fatal("a name past the cap was logged")
 	}
 }
 

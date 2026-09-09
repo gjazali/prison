@@ -38,7 +38,7 @@ paths = ["/home/dev/.claude"]
 CLAUDE_CONFIG_DIR = "/home/dev/.claude"
 
 [egress]
-hosts = ["api.anthropic.com"]
+hosts = ["api.anthropic.com", "console.anthropic.com"]
 
 [host]
 copy = ["CLAUDE.md", "agents/", "skills/"]

@@ -3,8 +3,10 @@ package guest
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/netip"
+	"sync"
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -18,12 +20,42 @@ const sentinelTTL = 60
 // maximumQueryBytes is the size limit for a single DNS query datagram.
 const maximumQueryBytes = 4096
 
+// maximumReportedRefusals is the size limit for how many distinct refused names
+// the resolver remembers.
+const maximumReportedRefusals = 1024
+
 // resolver is the box's DNS server. Names in the reserved zone or
 // matched by the allowlist resolve to sentinel addresses. All other
 // names return NXDOMAIN.
 type resolver struct {
 	sentinels *sentinelAllocator
 	allowList *allowListHolder
+	logger    *log.Logger
+
+	refusalMutex sync.Mutex
+	reported     map[string]bool
+	reportedFull bool
+}
+
+// noteRefusal logs the names that aren't in the allowlist.
+func (r *resolver) noteRefusal(name string) {
+	r.refusalMutex.Lock()
+	defer r.refusalMutex.Unlock()
+	if r.reportedFull || r.reported[name] {
+		return
+	}
+	if len(r.reported) >= maximumReportedRefusals {
+		r.reportedFull = true
+		r.logger.Printf("resolver: %d refused names logged; the rest will"+
+			" go unnamed", maximumReportedRefusals)
+		return
+	}
+	if r.reported == nil {
+		r.reported = make(map[string]bool)
+	}
+	r.reported[name] = true
+	r.logger.Printf("resolver: %s does not resolve, nothing in the allowlist"+
+		" matches it; add it to egress.hosts in prison.toml", name)
 }
 
 // resolves returns true if name should get an address. Names in the
@@ -58,6 +90,7 @@ func (r *resolver) answer(packet []byte) ([]byte, bool) {
 	switch {
 	case !r.resolves(name):
 		code = dnsmessage.RCodeNameError
+		r.noteRefusal(name)
 	case question.Type == dnsmessage.TypeA:
 		address, haveAddress = r.sentinels.Allocate(name)
 		if !haveAddress {

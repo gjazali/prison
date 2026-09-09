@@ -88,7 +88,8 @@ func runInit(arguments []string, logger *log.Logger) int {
 		return 1
 	}
 	fatal := make(chan error, 2)
-	nameServer := &resolver{sentinels: sentinels, allowList: allowList}
+	nameServer := &resolver{sentinels: sentinels, allowList: allowList,
+		logger: logger}
 	go func() { fatal <- nameServer.serve(resolverConn) }()
 	tunnelServer := &tunnel{
 		sentinels:     sentinels,
