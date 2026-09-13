@@ -128,7 +128,8 @@ type HostRoute interface {
 
 // Cage is a container backend. Create and Start return only once the
 // box accepts Exec. Exec returns the command's exit status and an error
-// only when the command could not be run at all.
+// only when the command could not be run at all. ReleaseBuilder frees
+// whatever a backend keeps running between builds.
 type Cage interface {
 	Name() string
 	Description() string
@@ -147,6 +148,7 @@ type Cage interface {
 
 	ImageExists(ctx context.Context, tag string) (bool, error)
 	Build(ctx context.Context, spec BuildSpec) error
+	ReleaseBuilder(ctx context.Context) error
 
 	Network(ctx context.Context, name string) (NetworkInfo, error)
 	EnsureNetwork(ctx context.Context, name string) error

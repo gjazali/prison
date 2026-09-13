@@ -411,6 +411,31 @@ func TestBuildSortsArguments(t *testing.T) {
 	}
 }
 
+// TestReleaseBuilderStopsTheBuilder checks the command that stops the
+// build daemon.
+func TestReleaseBuilderStopsTheBuilder(t *testing.T) {
+	runner := newFixtureRunner()
+	runner.answer("container builder stop", fixtureResponse{})
+	if err := newTestDriver(runner).ReleaseBuilder(
+		context.Background()); err != nil {
+		t.Fatalf("ReleaseBuilder: %v", err)
+	}
+	if len(runner.calls) != 1 ||
+		runner.calls[0] != "container builder stop" {
+		t.Errorf("calls were %v", runner.calls)
+	}
+}
+
+// TestReleaseBuilderIgnoresAStoppedBuilder checks a non-zero exit
+// from `builder stop` is not an error.
+func TestReleaseBuilderIgnoresAStoppedBuilder(t *testing.T) {
+	runner := newFixtureRunner()
+	if err := newTestDriver(runner).ReleaseBuilder(
+		context.Background()); err != nil {
+		t.Errorf("ReleaseBuilder: %v", err)
+	}
+}
+
 // TestDeleteFallsBackToRemove checks that `rm` is tried when
 // `delete` fails.
 func TestDeleteFallsBackToRemove(t *testing.T) {

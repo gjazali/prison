@@ -136,6 +136,89 @@ func TestEnsureSkipsImagesThatArePresent(t *testing.T) {
 	}
 }
 
+// releaseCount returns how many times the builder was released.
+func releaseCount(c *recordingCage) int {
+	count := 0
+	for _, line := range c.Calls {
+		if line == "ReleaseBuilder" {
+			count++
+		}
+	}
+	return count
+}
+
+// TestEnsureReleasesTheBuilderOnceAfterBuilding checks the builder is
+// released once, after the last step.
+func TestEnsureReleasesTheBuilderOnceAfterBuilding(t *testing.T) {
+	plan := planFor(t, testAssets(), testInmates())
+	c := newRecordingCage()
+
+	if err := Ensure(t.Context(), c, plan, nil); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	if count := releaseCount(c); count != 1 {
+		t.Fatalf("the builder was released %d times, want 1", count)
+	}
+	if c.Calls[len(c.Calls)-1] != "ReleaseBuilder" {
+		t.Errorf("the builder was released before the last build: %v",
+			c.Calls)
+	}
+}
+
+// TestEnsureKeepsTheBuilderWhenNothingIsBuilt checks a plan with
+// every image already present leaves the builder untouched.
+func TestEnsureKeepsTheBuilderWhenNothingIsBuilt(t *testing.T) {
+	plan := planFor(t, testAssets(), testInmates())
+	c := newRecordingCage()
+	for _, step := range plan.Steps {
+		c.Images[step.Tag] = true
+	}
+
+	if err := Ensure(t.Context(), c, plan, nil); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	if count := releaseCount(c); count != 0 {
+		t.Errorf("the builder was released %d times without a build",
+			count)
+	}
+}
+
+// TestEnsureReleasesTheBuilderAfterAFailure checks a failed build
+// still releases the builder.
+func TestEnsureReleasesTheBuilderAfterAFailure(t *testing.T) {
+	plan := planFor(t, testAssets(), testInmates())
+	c := newRecordingCage()
+	c.Fail["Build"] = os.ErrPermission
+
+	if err := Ensure(t.Context(), c, plan, nil); err == nil {
+		t.Fatal("a failed build was not reported")
+	}
+
+	if count := releaseCount(c); count != 1 {
+		t.Errorf("the builder was released %d times, want 1", count)
+	}
+}
+
+// TestEnsureReportsAnUnreleasedBuilderWithoutFailing checks a builder
+// that will not stop is mentioned in the output without failing the
+// build.
+func TestEnsureReportsAnUnreleasedBuilderWithoutFailing(t *testing.T) {
+	plan := planFor(t, testAssets(), testInmates())
+	c := newRecordingCage()
+	c.Fail["ReleaseBuilder"] = os.ErrPermission
+	var out strings.Builder
+
+	if err := Ensure(t.Context(), c, plan, &out); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "the image builder is still running") {
+		t.Errorf("the output does not mention the builder: %s", out.String())
+	}
+}
+
 // TestEnsureLaysOutAndRemovesTheContext checks that each build sees
 // its context files and the temporary directory is removed after.
 func TestEnsureLaysOutAndRemovesTheContext(t *testing.T) {

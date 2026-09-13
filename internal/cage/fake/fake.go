@@ -283,6 +283,12 @@ func (fakeCage *Cage) Build(
 	return nil
 }
 
+// ReleaseBuilder records the call. The fake keeps nothing running
+// between builds.
+func (fakeCage *Cage) ReleaseBuilder(ctx context.Context) error {
+	return fakeCage.record("ReleaseBuilder")
+}
+
 // Network returns info about a network by name. Unknown names come
 // back with Exists false.
 func (fakeCage *Cage) Network(

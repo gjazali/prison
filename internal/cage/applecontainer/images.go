@@ -60,3 +60,13 @@ func (driver *Driver) Build(
 	}
 	return nil
 }
+
+// ReleaseBuilder stops the BuildKit builder container. Apple's
+// `container` leaves it running after a build and holds its full
+// guest memory until stopped. A later build starts it again on its
+// own. Returns an error only when the command could not be run.
+func (driver *Driver) ReleaseBuilder(ctx context.Context) error {
+	_, err := driver.runQuietly(
+		ctx, containerBinary, "builder", "stop")
+	return err
+}

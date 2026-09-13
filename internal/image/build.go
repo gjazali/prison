@@ -23,13 +23,20 @@ const contextFileMode = 0o644
 // Ensure builds each missing step of a plan in order. It takes a
 // context, a cage, a plan, and a writer for progress output. It
 // returns an error on the first failure. A nil `out` discards output.
-// It refuses to build a base image without the guest binary.
+// It refuses to build a base image without the guest binary. It
+// releases the cage's builder only if it built at least one step.
 func Ensure(
 	ctx context.Context, c cage.Cage, plan *Plan, out io.Writer,
 ) error {
 	if out == nil {
 		out = io.Discard
 	}
+	started := false
+	defer func() {
+		if started {
+			releaseBuilder(ctx, c, out)
+		}
+	}()
 	for _, step := range plan.Steps {
 		present, err := c.ImageExists(ctx, step.Tag)
 		if err != nil {
@@ -46,11 +53,24 @@ func Ensure(
 				"image context; run `make build`")
 		}
 		fmt.Fprintf(out, "building  %s (%s)\n", step.Tag, step.Description)
+		started = true
 		if err := buildStep(ctx, c, step, out); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// releaseBuilder asks the cage to release its builder. A failure goes
+// to `out` instead of failing the caller. It strips the context's
+// cancellation, so a build that was interrupted still releases the
+// builder it started.
+func releaseBuilder(ctx context.Context, c cage.Cage, out io.Writer) {
+	err := c.ReleaseBuilder(context.WithoutCancel(ctx))
+	if err != nil {
+		fmt.Fprintf(out,
+			"note      the image builder is still running: %v\n", err)
+	}
 }
 
 // buildStep builds one image step. It takes a context, a cage, a
