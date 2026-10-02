@@ -1,0 +1,7 @@
+   route to: 192.168.128.2
+destination: 192.168.128.0
+       mask: 255.255.255.0
+  interface: bridge101
+      flags: <UP,DONE,CLONING>
+ recvpipe  sendpipe  ssthresh  rtt,msec    rttvar  hopcount      mtu     expire
+       0         0         0         0         0         0      1500       -19 

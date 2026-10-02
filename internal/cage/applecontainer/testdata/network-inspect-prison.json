@@ -1,0 +1,22 @@
+[
+  {
+    "configuration" : {
+      "creationDate" : "2026-08-11T02:59:05Z",
+      "labels" : {
+
+      },
+      "mode" : "hostOnly",
+      "name" : "prison",
+      "options" : {
+
+      },
+      "plugin" : "container-network-vmnet"
+    },
+    "id" : "prison",
+    "status" : {
+      "ipv4Gateway" : "192.168.128.1",
+      "ipv4Subnet" : "192.168.128.0\/24",
+      "ipv6Subnet" : "fd53:f87a:1b9:1bf5::\/64"
+    }
+  }
+]

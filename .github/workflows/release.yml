@@ -1,0 +1,161 @@
+# Releases only the tags whose commit is on `prod`, after their tests pass.
+name: release
+
+on:
+  push:
+    branches: [prod]
+    tags: ["*"]
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  select:
+    runs-on: ubuntu-24.04
+    outputs:
+      tags: ${{ steps.select.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: select
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if ! git fetch --force origin prod:refs/remotes/origin/prod; then
+            echo "the prod branch does not exist. No tags to build"
+            echo 'tags=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            commits="$(git rev-parse "$GITHUB_REF_NAME^{commit}")"
+          elif [[ "$BEFORE" =~ ^0+$ ]] ||
+            ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            commits="$GITHUB_SHA"
+          else
+            commits="$(git rev-list "$BEFORE..$GITHUB_SHA")"
+          fi
+          tags=()
+          for commit in $commits; do
+            if ! git merge-base --is-ancestor "$commit" origin/prod; then
+              echo "$commit is not on prod. Skipped"
+              continue
+            fi
+            while read -r tag; do
+              if [[ -z "$tag" ]]; then
+                continue
+              fi
+              if [[ "$GITHUB_REF_TYPE" == "tag" &&
+                "$tag" != "$GITHUB_REF_NAME" ]]; then
+                continue
+              fi
+              tags+=("$tag")
+            done < <(git tag --points-at "$commit")
+          done
+          json="$(printf '%s\n' "${tags[@]}" |
+            jq -Rnc '[inputs | select(length > 0)] | unique')"
+          echo "tags to build: $json"
+          echo "tags=$json" >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: select
+    if: needs.select.outputs.tags != '[]'
+    strategy:
+      matrix:
+        tag: ${{ fromJSON(needs.select.outputs.tags) }}
+    uses: ./.github/workflows/test.yml
+    with:
+      ref: refs/tags/${{ matrix.tag }}
+
+  build:
+    needs: [select, test]
+    if: needs.select.outputs.tags != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJSON(needs.select.outputs.tags) }}
+        platform:
+          - { runner: macos-15, goos: darwin, goarch: arm64 }
+          - { runner: ubuntu-24.04, goos: linux, goarch: amd64 }
+          - { runner: ubuntu-24.04-arm, goos: linux, goarch: arm64 }
+    runs-on: ${{ matrix.platform.runner }}
+    env:
+      TAG: ${{ matrix.tag }}
+      ARCHIVE: >-
+        prison-${{ matrix.tag }}-${{ matrix.platform.goos }}-${{
+        matrix.platform.goarch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ matrix.tag }}
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Install the kernel build tools
+        if: matrix.platform.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential flex \
+            libelf-dev libssl-dev xz-utils
+      - name: Restore the guest kernel
+        if: matrix.platform.goos == 'linux'
+        uses: actions/cache@v6
+        with:
+          path: |
+            images/kernel/linux-${{ matrix.platform.goarch }}.gz
+            images/kernel/version
+          key: >-
+            kernel-${{ matrix.platform.goarch }}-${{
+            hashFiles('kernel/**') }}
+      - name: Build
+        run: |
+          export SOURCE_DATE_EPOCH="$(git log -1 --format=%ct)"
+          make build VERSION="$TAG"
+      - name: Package
+        run: |
+          mkdir -p "dist/$ARCHIVE"
+          cp bin/prison LICENSE README.md "dist/$ARCHIVE/"
+          tar -C dist -czf "dist/$ARCHIVE.tar.gz" "$ARCHIVE"
+          cd dist
+          shasum -a 256 "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: |
+            dist/${{ env.ARCHIVE }}.tar.gz
+            dist/${{ env.ARCHIVE }}.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs: [select, test, build]
+    strategy:
+      matrix:
+        tag: ${{ fromJSON(needs.select.outputs.tags) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: prison-${{ matrix.tag }}-*
+          path: dist
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ matrix.tag }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --generate-notes \
+              --title "$TAG"
+          fi
+          gh release upload "$TAG" dist/* --clobber

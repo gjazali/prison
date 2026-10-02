@@ -1,0 +1,2 @@
+This is an embeddable file kept to prevent go:embed in
+internal/cages/embed_linux.go from failing.

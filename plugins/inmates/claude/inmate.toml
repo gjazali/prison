@@ -1,0 +1,67 @@
+[inmate]
+name = "claude"
+description = "Claude Code, Anthropic's CLI"
+
+[image]
+dockerfile = "Dockerfile"
+
+[command]
+run = "claude"
+unsafe = "claude --dangerously-skip-permissions"
+
+[auth]
+upstream = "api.anthropic.com"
+path_prefix = "/v1/"
+base_url_variable = "ANTHROPIC_BASE_URL"
+
+# Claude Code also uses `ANTHROPIC_API_KEY` for feature flags. Setting
+# `ANTHROPIC_AUTH_TOKEN` too will cause a session warning.
+token_variable = "ANTHROPIC_API_KEY"
+
+[[auth.credentials]]
+variable = "ANTHROPIC_API_KEY"
+header = "x-api-key"
+
+[[auth.credentials]]
+variable = "CLAUDE_CODE_OAUTH_TOKEN"
+header = "Authorization"
+prefix = "Bearer "
+
+[persist]
+# `CLAUDE_CONFIG_DIR` keeps all configuration and telemetry in one persisted
+# directory.
+paths = ["/home/dev/.claude"]
+
+[environment]
+CLAUDE_CONFIG_DIR = "/home/dev/.claude"
+
+[egress]
+hosts = ["api.anthropic.com", "console.anthropic.com"]
+
+[host]
+copy = ["CLAUDE.md", "agents/", "skills/"]
+
+[[host.json]]
+from = "settings.json"
+to = "settings.json"
+keep = ["model", "theme", "effortLevel", "outputStyle",
+        "permissions", "includeCoAuthoredBy",
+        "alwaysThinkingEnabled", "spinnerVerbs"]
+
+[[host.json]]
+# This approves the placeholder `ANTHROPIC_API_KEY` so that the session does not
+# complain about an unknown key.
+to = ".claude.json"
+append = { "customApiKeyResponses.approved" = "${placeholder_tail}" }
+
+[[host.environment]]
+name = "CLAUDE_CODE_ACCOUNT_UUID"
+from = "~/.claude.json"
+path = "oauthAccount.accountUuid"
+pattern = "^[0-9a-fA-F-]{1,64}$"
+
+[[host.environment]]
+name = "CLAUDE_CODE_ORGANIZATION_UUID"
+from = "~/.claude.json"
+path = "oauthAccount.organizationUuid"
+pattern = "^[0-9a-fA-F-]{1,64}$"

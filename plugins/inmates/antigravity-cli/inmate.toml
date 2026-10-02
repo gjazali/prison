@@ -1,0 +1,51 @@
+[inmate]
+name = "antigravity-cli"
+description = "Antigravity CLI, Google's terminal coding agent"
+aliases = ["agy"]
+
+[image]
+dockerfile = "Dockerfile"
+
+[command]
+run = "agy"
+unsafe = "agy --dangerously-skip-permissions"
+
+[auth]
+upstream = "generativelanguage.googleapis.com"
+
+path_prefix = "/"
+
+base_url_variable = "GOOGLE_GEMINI_BASE_URL"
+token_variable = "GEMINI_API_KEY"
+
+[[auth.credentials]]
+variable = "GEMINI_API_KEY"
+header = "x-goog-api-key"
+
+[[auth.credentials]]
+variable = "GOOGLE_API_KEY"
+header = "x-goog-api-key"
+
+[persist]
+paths = ["/home/dev/.gemini"]
+
+[environment]
+AGY_CLI_DISABLE_AUTO_UPDATE = "true"
+
+[egress]
+hosts = ["generativelanguage.googleapis.com"]
+
+[host]
+copy = ["GEMINI.md", "antigravity-cli/keybindings.json"]
+
+[[host.json]]
+from = "antigravity-cli/settings.json"
+to = "antigravity-cli/settings.json"
+keep = ["agentMode", "toolPermission", "artifactReviewPolicy",
+        "permissions", "altScreenMode", "colorScheme", "editor",
+        "editorMode", "notifications", "runningLightSpeed", "showTips",
+        "verbosity"]
+
+[[host.json]]
+to = "antigravity-cli/settings.json"
+set = { modelProvider = "gemini" }

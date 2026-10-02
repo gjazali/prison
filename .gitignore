@@ -1,0 +1,5 @@
+/bin/
+/images/base/prison-guest
+*.test
+/images/kernel/*
+!/images/kernel/embeddable.txt
