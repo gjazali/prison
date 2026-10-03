@@ -47,8 +47,8 @@ func OpenRoot(path string) (*Root, error) {
 	return root, nil
 }
 
-func (r *Root) CageDir(name string) string {
-	return filepath.Join(r.Path, "cages", name)
+func (r *Root) IsolatorDir() string {
+	return filepath.Join(r.Path, "isolator")
 }
 
 func (r *Root) ConfigFile() string {

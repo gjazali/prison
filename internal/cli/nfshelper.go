@@ -6,11 +6,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"prison/internal/cage/firecracker"
+	"prison/internal/isolator/firecracker"
 	"prison/internal/nfsexport"
 )
 
-// newHostNFSHelperCommand runs as root for the aws-firecracker cage.
+// newHostNFSHelperCommand runs as root for the aws-firecracker isolator.
 // Systemd starts one helper per user from a socket.
 func newHostNFSHelperCommand() *cobra.Command {
 	var uid, gid int

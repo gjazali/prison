@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 	"prison/internal/session"
 	"prison/internal/ui"
 )
@@ -45,11 +45,8 @@ func runUp() error {
 
 func printAccessSummary(ctx context.Context, current *session.Session,
 	result *session.UpResult) {
-	capabilities := current.Cage.Capabilities()
 	fmt.Println()
 	ui.Summary("box", "%s", current.BoxName)
-	ui.Summary("cage", "%s, %s isolation", current.Cage.Name(),
-		capabilities.Isolation)
 	if current.Record != nil && current.Record.Box != nil && current.Record.Box.Sudo {
 		ui.Summary("sudo", "granted in this box")
 	}
@@ -68,14 +65,10 @@ func printAccessSummary(ctx context.Context, current *session.Session,
 	}
 	ui.Summary("image", "%s", result.Image)
 	ui.Summary("egress", "%s", current.Project.EgressAllowFile())
-	if capabilities.GuestHostnames {
-		ui.Summary("host", "%s", current.BoxName)
-	}
-	if capabilities.GuestAddresses {
-		if box, err := current.Cage.Box(ctx, current.BoxName); err == nil &&
-			box.Address != "" {
-			ui.Summary("ip", "%s", box.Address)
-		}
+	printHostnameSummary(current)
+	if box, err := current.Isolator.Box(ctx, current.BoxName); err == nil &&
+		box.Address != "" {
+		ui.Summary("ip", "%s", box.Address)
 	}
 	if current.ConfigPresent {
 		if current.ConfigTrusted {
@@ -90,7 +83,7 @@ func printAccessSummary(ctx context.Context, current *session.Session,
 	printSessionLines(current, result)
 }
 
-func printPortLine(mapping cage.PortMapping) {
+func printPortLine(mapping isolator.PortMapping) {
 	if mapping.Host == mapping.Guest {
 		ui.Summary("ports", "http://127.0.0.1:%d", mapping.Host)
 		return

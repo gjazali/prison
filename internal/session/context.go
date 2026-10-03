@@ -14,9 +14,8 @@ import (
 	"strings"
 
 	"prison"
-	"prison/internal/cage"
-	"prison/internal/cages"
 	"prison/internal/config"
+	"prison/internal/isolator"
 	"prison/internal/plugin"
 	"prison/internal/state"
 )
@@ -32,7 +31,7 @@ type Environment struct {
 	Overrides  *config.Overrides
 	Global     *config.Global
 	Root       *state.Root
-	Cage       cage.Cage
+	Isolator   isolator.Isolator
 	Registry   *plugin.Registry
 	HostUID    int
 	HostGID    int
@@ -52,16 +51,7 @@ func Load(assets fs.FS, version string) (*Environment, error) {
 	if err != nil {
 		return nil, err
 	}
-	cageName := cages.DefaultName
-	if global.Prison.Cage != nil && *global.Prison.Cage != "" {
-		cageName = *global.Prison.Cage
-	}
-	if overrides.Cage != nil && *overrides.Cage != "" {
-		cageName = *overrides.Cage
-	}
-	selected, err := cages.Lookup(cageName, cages.Options{
-		StateDirectory: root.CageDir(cageName),
-	})
+	selected, err := newIsolator(root)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +71,7 @@ func Load(assets fs.FS, version string) (*Environment, error) {
 		Overrides:  overrides,
 		Global:     global,
 		Root:       root,
-		Cage:       selected,
+		Isolator:   selected,
 		Registry:   plugin.NewRegistry(bundled, root.InmatesDir(), root.TrustDir()),
 		HostUID:    os.Getuid(),
 		HostGID:    os.Getgid(),

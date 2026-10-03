@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 	"prison/internal/nfsexport"
 	"prison/internal/ui"
 )
@@ -165,12 +165,12 @@ func (network boxNetwork) unit() string {
 
 func (driver *Driver) Network(
 	ctx context.Context, name string,
-) (cage.NetworkInfo, error) {
+) (isolator.NetworkInfo, error) {
 	network, err := networkFor(name)
 	if err != nil {
-		return cage.NetworkInfo{}, err
+		return isolator.NetworkInfo{}, err
 	}
-	return cage.NetworkInfo{
+	return isolator.NetworkInfo{
 		Name:     name,
 		Exists:   driver.networkIsReady(network),
 		HostOnly: true,

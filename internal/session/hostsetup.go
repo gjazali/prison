@@ -5,34 +5,13 @@ import (
 	"fmt"
 	"os"
 
-	"prison/internal/cage"
 	"prison/internal/hostfw"
+	"prison/internal/isolator"
 	"prison/internal/ui"
 )
 
-func (s *Session) ensureHostDNS(ctx context.Context) {
-	domains := s.Cage.DNS()
-	if !s.Cage.Capabilities().DNSDomain || domains == nil {
-		return
-	}
-	domain := s.Overrides.Domain
-	registered, err := domains.Exists(ctx, domain)
-	if err != nil {
-		ui.Warn("cannot read the `.%s` domain: %v", domain, err)
-		return
-	}
-	if registered {
-		return
-	}
-	ui.Progress("registering the `.%s` domain", domain)
-	printHostSetupBlock(domains.Describe(domain))
-	if err := domains.Register(ctx, domain); err != nil {
-		ui.Warn("cannot register the `.%s` domain: %v", domain, err)
-	}
-}
-
 func (s *Session) ensureHostFirewall(
-	ctx context.Context, network cage.NetworkInfo) bool {
+	ctx context.Context, network isolator.NetworkInfo) bool {
 	if !s.hostFirewallIsMissing(network) {
 		return true
 	}
@@ -47,32 +26,6 @@ func (s *Session) ensureHostFirewall(
 		return false
 	}
 	return true
-}
-
-func (s *Session) ensureHostRoute(
-	ctx context.Context, network cage.NetworkInfo) {
-	routes := s.Cage.Route()
-	if !s.Cage.Capabilities().RouteRepair || routes == nil ||
-		network.Gateway == "" {
-		return
-	}
-	installed, err := routes.Installed(ctx, network.Gateway)
-	if err != nil {
-		ui.Warn("cannot read the route to the box network: %v", err)
-		return
-	}
-	if installed {
-		return
-	}
-	ui.Progress("routing the box network over %s",
-		network.Gateway)
-	line, err := routes.Command(ctx, network.Gateway)
-	if err == nil && line != "" {
-		printHostSetupBlock([]string{line})
-	}
-	if err := routes.Install(ctx, network.Gateway); err != nil {
-		ui.Warn("cannot add the route to the box network: %v", err)
-	}
 }
 
 func printHostSetupBlock(lines []string) {

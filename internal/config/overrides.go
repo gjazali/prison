@@ -20,7 +20,6 @@ const (
 // outranks both configuration files. Plain fields always hold a value.
 type Overrides struct {
 	Inmates    *[]string
-	Cage       *string
 	Pager      *string
 	DiffTool   *string
 	CPUs       *int
@@ -70,12 +69,6 @@ func (overrides *Overrides) readInmates(
 			names = append(names, name)
 		}
 		overrides.Inmates = &names
-	}
-	if cage := valueOf(getenv, "PRISON_CAGE"); cage != "" {
-		if err := ValidateName("cage", cage); err != nil {
-			return fmt.Errorf("PRISON_CAGE: %w", err)
-		}
-		overrides.Cage = &cage
 	}
 	return nil
 }

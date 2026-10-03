@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 func (driver *Driver) ImageExists(
@@ -17,7 +17,7 @@ func (driver *Driver) ImageExists(
 		ctx, containerBinary, "image", "inspect", tag)
 }
 
-func buildArguments(spec cage.BuildSpec) []string {
+func buildArguments(spec isolator.BuildSpec) []string {
 	arguments := []string{"build", "--tag", spec.Tag}
 	if spec.Dockerfile != "" {
 		arguments = append(arguments, "--file",
@@ -36,7 +36,7 @@ func buildArguments(spec cage.BuildSpec) []string {
 }
 
 func (driver *Driver) Build(
-	ctx context.Context, spec cage.BuildSpec,
+	ctx context.Context, spec isolator.BuildSpec,
 ) error {
 	output := spec.Output
 	if output == nil {

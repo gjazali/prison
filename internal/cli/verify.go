@@ -12,142 +12,42 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"prison/internal/cage"
-	"prison/internal/cages"
 	"prison/internal/session"
 	"prison/internal/ui"
 )
 
 func init() {
-	registerGroup(addCageCommands)
+	registerGroup(addVerifyCommand)
 }
 
-func addCageCommands(root *cobra.Command) {
-	group := &cobra.Command{
-		Use:   "cage",
-		Short: "manage the backends a box can run on",
-		Args: cobra.NoArgs,
-		RunE: func(command *cobra.Command, arguments []string) error {
-			return runCageList(command)
-		},
-	}
-	group.AddCommand(
-		newCageListCommand(),
-		newCageShowCommand(),
-		newCageVerifyCommand(),
-	)
-	root.AddCommand(group)
-}
-
-func newCageListCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "list",
-		Short: "list cages and their isolation",
-		Args:  cobra.NoArgs,
-		RunE: func(command *cobra.Command, arguments []string) error {
-			return runCageList(command)
-		},
-	}
-}
-
-func newCageShowCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "show [name]",
-		Short: "show a cage's details",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(command *cobra.Command, arguments []string) error {
-			requestedName := ""
-			if len(arguments) == 1 {
-				requestedName = arguments[0]
-			}
-			return runCageShow(command, requestedName)
-		},
-	}
-}
-
-func newCageVerifyCommand() *cobra.Command {
-	return &cobra.Command{
+func addVerifyCommand(root *cobra.Command) {
+	root.AddCommand(&cobra.Command{
 		Use:   "verify",
 		Short: "make sure that this box is isolated",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return runCageVerify(command)
+			return runVerify(command)
 		},
-	}
+	})
 }
 
-func runCageList(command *cobra.Command) error {
-	rows := [][]string{{"NAME", "ISOLATION", "DESCRIPTION"}}
-	for _, name := range cages.Names() {
-		selected, err := cages.Lookup(name, cages.Options{})
-		if err != nil {
-			return err
-		}
-		rows = append(rows, []string{
-			name,
-			selected.Capabilities().Isolation,
-			selected.Description(),
-		})
-	}
-	return ui.Table(command.OutOrStdout(), rows)
-}
-
-func runCageShow(command *cobra.Command, requestedName string) error {
-	selected, err := resolveCageByName(requestedName)
-	if err != nil {
-		return err
-	}
-	out := command.OutOrStdout()
-	capabilities := selected.Capabilities()
-	printCageDetail(out, "name", "%s", selected.Name())
-	printCageDetail(out, "description", "%s", selected.Description())
-	printCageDetail(out, "available", "%s", yesOrNoText(selected.Available()))
-	printCageDetail(out, "isolation", "%s", capabilities.Isolation)
-	printCageDetail(out, "guest addresses", "%s",
-		yesOrNoText(capabilities.GuestAddresses))
-	printCageDetail(out, "guest hostnames", "%s",
-		yesOrNoText(capabilities.GuestHostnames))
-	printCageDetail(out, "dns domain", "%s",
-		yesOrNoText(capabilities.DNSDomain))
-	printCageDetail(out, "route repair", "%s",
-		yesOrNoText(capabilities.RouteRepair))
-	printCageDetail(out, "host-only network", "%s",
-		yesOrNoText(capabilities.HostOnlyNetwork))
-	printCageDetail(out, "host firewall", "%s",
-		yesOrNoText(capabilities.HostFirewall))
-	return nil
-}
-
-func resolveCageByName(requestedName string) (cage.Cage, error) {
-	if requestedName != "" {
-		return cages.Lookup(requestedName, cages.Options{})
-	}
-	environment, err := loadEnvironment()
-	if err != nil {
-		return nil, err
-	}
-	return environment.Cage, nil
-}
-
-func runCageVerify(command *cobra.Command) error {
+func runVerify(command *cobra.Command) error {
 	ctx, cancel := commandContext()
 	defer cancel()
 	current, err := openSession()
 	if err != nil {
 		return err
 	}
-	if err := current.Cage.Require(ctx); err != nil {
+	if err := current.Isolator.Require(ctx); err != nil {
 		return err
 	}
 	if err := current.RequireRunning(ctx); err != nil {
 		return err
 	}
 	out := command.OutOrStdout()
-	ui.Progress("verifying %s against %s", current.Cage.Name(), current.BoxName)
-	fmt.Fprintf(out, "  isolation: %s\n\n",
-		current.Cage.Capabilities().Isolation)
+	ui.Progress("testing %s", current.BoxName)
 
-	verification := &cageVerification{out: out}
+	verification := &isolationVerification{out: out}
 	checkSessionUserIsNotRoot(ctx, current, verification)
 	checkWorkspaceIsTheProject(ctx, current, verification)
 	checkGitHooksAreReadOnly(ctx, current, verification)
@@ -166,31 +66,31 @@ func runCageVerify(command *cobra.Command) error {
 	return ui.Exit(1, "%d isolation tests failed", verification.failures)
 }
 
-type cageVerification struct {
+type isolationVerification struct {
 	out      io.Writer
 	failures int
 }
 
-func (verification *cageVerification) pass(
+func (verification *isolationVerification) pass(
 	property, format string, arguments ...any,
 ) {
 	verification.report("PASS", property, format, arguments...)
 }
 
-func (verification *cageVerification) fail(
+func (verification *isolationVerification) fail(
 	property, format string, arguments ...any,
 ) {
 	verification.failures++
 	verification.report("FAIL", property, format, arguments...)
 }
 
-func (verification *cageVerification) skip(
+func (verification *isolationVerification) skip(
 	property, format string, arguments ...any,
 ) {
 	verification.report("SKIP", property, format, arguments...)
 }
 
-func (verification *cageVerification) report(
+func (verification *isolationVerification) report(
 	outcome, property, format string, arguments ...any,
 ) {
 	fmt.Fprintf(verification.out, "  %s  %-20s %s\n",
@@ -198,7 +98,7 @@ func (verification *cageVerification) report(
 }
 
 func checkSessionUserIsNotRoot(ctx context.Context,
-	current *session.Session, verification *cageVerification) {
+	current *session.Session, verification *isolationVerification) {
 	status, output, err := current.RunQuiet(ctx, "id", "-u")
 	if err != nil {
 		verification.fail("session user",
@@ -220,7 +120,7 @@ func checkSessionUserIsNotRoot(ctx context.Context,
 }
 
 func checkWorkspaceIsTheProject(ctx context.Context,
-	current *session.Session, verification *cageVerification) {
+	current *session.Session, verification *isolationVerification) {
 	guestFile := session.WorkspaceDir + "/" + verifyMarkerName()
 	status, output, err := runInBoxShell(ctx, current,
 		"touch "+quoteForBoxShell(guestFile)+" && rm -f "+
@@ -253,7 +153,7 @@ func checkWorkspaceIsTheProject(ctx context.Context,
 }
 
 func checkGitHooksAreReadOnly(ctx context.Context,
-	current *session.Session, verification *cageVerification) {
+	current *session.Session, verification *isolationVerification) {
 	if !directoryExistsOnHost(filepath.Join(current.Directory, ".git", "hooks")) {
 		verification.skip("git hooks",
 			"this project has no git hooks")
@@ -283,7 +183,7 @@ func checkGitHooksAreReadOnly(ctx context.Context,
 }
 
 func checkHostFilesystemIsNotVisible(ctx context.Context,
-	current *session.Session, verification *cageVerification) {
+	current *session.Session, verification *isolationVerification) {
 	if current.HomeDir == "" {
 		verification.skip("host filesystem",
 			"this host has no home directory")
@@ -300,7 +200,7 @@ func checkHostFilesystemIsNotVisible(ctx context.Context,
 }
 
 func checkDirectEgressIsRefused(ctx context.Context,
-	current *session.Session, verification *cageVerification) {
+	current *session.Session, verification *isolationVerification) {
 	status, output, err := runInBoxShell(ctx, current,
 		"command -v curl >/dev/null || exit 99; "+
 			"curl --max-time 3 --noproxy '*' https://1.1.1.1")
@@ -322,7 +222,7 @@ func checkDirectEgressIsRefused(ctx context.Context,
 }
 
 func checkBrokerIsReachable(ctx context.Context,
-	current *session.Session, verification *cageVerification) {
+	current *session.Session, verification *isolationVerification) {
 	status, output, err := current.RunQuiet(ctx, session.GuestBinary, "ready")
 	if err != nil {
 		verification.fail("broker",
@@ -339,7 +239,7 @@ func checkBrokerIsReachable(ctx context.Context,
 }
 
 func checkFirewallRulesAreOutOfReach(ctx context.Context,
-	current *session.Session, verification *cageVerification) {
+	current *session.Session, verification *isolationVerification) {
 	status, _, err := runInBoxShell(ctx, current,
 		"command -v iptables >/dev/null || exit 99; iptables -F")
 	if err != nil {
@@ -362,7 +262,7 @@ func checkFirewallRulesAreOutOfReach(ctx context.Context,
 // checkPublishedPortsAreLoopbackOnly binds each port on the other host
 // addresses. A failed bind means that the port is exposed there.
 func checkPublishedPortsAreLoopbackOnly(current *session.Session,
-	verification *cageVerification) {
+	verification *isolationVerification) {
 	ports := recordedHostPorts(current)
 	if len(ports) == 0 {
 		verification.skip("published ports", "this box publishes no ports")
@@ -396,7 +296,7 @@ func checkPublishedPortsAreLoopbackOnly(current *session.Session,
 }
 
 func checkShadowedDirectoriesAreIsolated(ctx context.Context,
-	current *session.Session, verification *cageVerification) {
+	current *session.Session, verification *isolationVerification) {
 	paths := current.ShadowPaths()
 	if len(paths) == 0 {
 		verification.skip("shadowed paths", "none")
@@ -492,15 +392,4 @@ func firstLineOfOutput(output string) string {
 func directoryExistsOnHost(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
-}
-
-func yesOrNoText(value bool) string {
-	if value {
-		return "yes"
-	}
-	return "no"
-}
-
-func printCageDetail(w io.Writer, label, format string, arguments ...any) {
-	fmt.Fprintf(w, "%-18s %s\n", label, fmt.Sprintf(format, arguments...))
 }

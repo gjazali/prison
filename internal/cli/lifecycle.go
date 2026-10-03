@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 	"prison/internal/checkpoint"
 	"prison/internal/config"
 	"prison/internal/session"
@@ -116,7 +116,7 @@ func runDown(boxArgument string) error {
 	if err != nil {
 		return err
 	}
-	if err := environment.Cage.Require(ctx); err != nil {
+	if err := environment.Isolator.Require(ctx); err != nil {
 		return err
 	}
 	project, err := environment.ResolveBoxArgument(boxArgument)
@@ -124,7 +124,7 @@ func runDown(boxArgument string) error {
 		return err
 	}
 	boxName := project.BoxName(environment.Overrides.Domain)
-	box, err := environment.Cage.Box(ctx, boxName)
+	box, err := environment.Isolator.Box(ctx, boxName)
 	if err != nil {
 		return err
 	}
@@ -136,7 +136,7 @@ func runDown(boxArgument string) error {
 	}
 	ui.Progress("stopping %s", boxName)
 	environment.UnpublishPorts(ctx, boxName)
-	if err := environment.Cage.Stop(ctx, boxName); err != nil {
+	if err := environment.Isolator.Stop(ctx, boxName); err != nil {
 		return err
 	}
 	if boxArgument == "" {
@@ -154,7 +154,7 @@ func runRemove(boxArgument string, removesState, assumeYes bool) error {
 	if err != nil {
 		return err
 	}
-	if err := environment.Cage.Require(ctx); err != nil {
+	if err := environment.Isolator.Require(ctx); err != nil {
 		return err
 	}
 	project, err := environment.ResolveBoxArgument(boxArgument)
@@ -162,7 +162,7 @@ func runRemove(boxArgument string, removesState, assumeYes bool) error {
 		return err
 	}
 	boxName := project.BoxName(environment.Overrides.Domain)
-	box, err := environment.Cage.Box(ctx, boxName)
+	box, err := environment.Isolator.Box(ctx, boxName)
 	if err != nil {
 		return err
 	}
@@ -228,9 +228,9 @@ func removeBoxAndState(ctx context.Context,
 func destroyBox(ctx context.Context, environment *session.Environment,
 	boxName string) error {
 	environment.UnpublishPorts(ctx, boxName)
-	_ = environment.Cage.Stop(ctx, boxName)
-	if err := environment.Cage.Delete(ctx, boxName); err != nil {
-		box, lookupError := environment.Cage.Box(ctx, boxName)
+	_ = environment.Isolator.Stop(ctx, boxName)
+	if err := environment.Isolator.Delete(ctx, boxName); err != nil {
+		box, lookupError := environment.Isolator.Box(ctx, boxName)
 		if lookupError != nil || box.Exists {
 			return err
 		}
@@ -286,10 +286,10 @@ func runList(command *cobra.Command, stateListing bool) error {
 	if stateListing {
 		return runListState(ctx, command, environment)
 	}
-	if err := environment.Cage.Require(ctx); err != nil {
+	if err := environment.Isolator.Require(ctx); err != nil {
 		return err
 	}
-	boxes, err := environment.Cage.ListBoxes(ctx)
+	boxes, err := environment.Isolator.ListBoxes(ctx)
 	if err != nil {
 		return err
 	}
@@ -306,7 +306,7 @@ func runList(command *cobra.Command, stateListing bool) error {
 		})
 	}
 	if len(rows) == 1 {
-		ui.Progress("no boxes on the %s cage", environment.Cage.Name())
+		ui.Progress("no boxes")
 		return nil
 	}
 	return ui.Table(command.OutOrStdout(), rows)
@@ -322,7 +322,7 @@ func runListState(ctx context.Context, command *cobra.Command,
 		ui.Progress("no state in %s", environment.Root.Path)
 		return nil
 	}
-	boxes, backendIsReadable := readBoxesByName(ctx, environment)
+	boxes, isolatorIsReadable := readBoxesByName(ctx, environment)
 	rows := [][]string{{"STATE", "SIZE", "BOX", "PROJECT"}}
 	for _, project := range projects {
 		size := "?"
@@ -330,7 +330,7 @@ func runListState(ctx context.Context, command *cobra.Command,
 			size = renderDirectorySize(bytes)
 		}
 		boxColumn := "?"
-		if backendIsReadable {
+		if isolatorIsReadable {
 			boxColumn = "none"
 			name := project.BoxName(environment.Overrides.Domain)
 			if box, held := boxes[name]; held {
@@ -344,23 +344,22 @@ func runListState(ctx context.Context, command *cobra.Command,
 	if err := ui.Table(command.OutOrStdout(), rows); err != nil {
 		return err
 	}
-	if !backendIsReadable {
-		ui.Warn("cannot list the boxes of the %s cage",
-			environment.Cage.Name())
+	if !isolatorIsReadable {
+		ui.Warn("cannot list the boxes")
 	}
 	return nil
 }
 
 func readBoxesByName(ctx context.Context,
-	environment *session.Environment) (map[string]cage.BoxInfo, bool) {
-	if !environment.Cage.Available() {
+	environment *session.Environment) (map[string]isolator.BoxInfo, bool) {
+	if environment.Isolator.Require(ctx) != nil {
 		return nil, false
 	}
-	listed, err := environment.Cage.ListBoxes(ctx)
+	listed, err := environment.Isolator.ListBoxes(ctx)
 	if err != nil {
 		return nil, false
 	}
-	boxes := make(map[string]cage.BoxInfo, len(listed))
+	boxes := make(map[string]isolator.BoxInfo, len(listed))
 	for _, box := range listed {
 		boxes[box.Name] = box
 	}
@@ -375,23 +374,20 @@ func runStatus(command *cobra.Command) error {
 		return err
 	}
 	current.WarnAboutUntrustedConfiguration()
-	capabilities := current.Cage.Capabilities()
 	rows := [][]string{
 		{"project", current.Directory},
 		{"box", current.BoxName},
 		{"state", current.Project.Dir},
-		{"cage", fmt.Sprintf("%s, %s isolation",
-			current.Cage.Name(), capabilities.Isolation)},
 		{"network", current.Overrides.Network},
 		{"sudo", describeSudo(current)},
 		{"inmates", namesOrNone(current.InmateNames)},
 		{"secrets", describeGrantedSecrets(current)},
 	}
-	if !current.Cage.Available() {
-		rows = append(rows, []string{"backend", "not installed"})
+	if err := current.Isolator.Require(ctx); err != nil {
+		rows = append(rows, []string{"status", err.Error()})
 		return ui.Table(command.OutOrStdout(), rows)
 	}
-	box, err := current.Cage.Box(ctx, current.BoxName)
+	box, err := current.Isolator.Box(ctx, current.BoxName)
 	if err != nil {
 		return err
 	}
@@ -482,7 +478,7 @@ func projectIDFromBoxName(boxName, domain string) string {
 	return candidate
 }
 
-func describeBoxPresence(box cage.BoxInfo) string {
+func describeBoxPresence(box isolator.BoxInfo) string {
 	switch {
 	case box.Running:
 		return "running"

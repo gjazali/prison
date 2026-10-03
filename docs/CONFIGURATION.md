@@ -19,7 +19,6 @@ The global config accepts:
 
 ```toml
 [prison]
-cage = "apple-container" # Which backend the boxes run on
 inmates = ["claude"]     # Which tools should be included in every box
 
 [checkpoint]
@@ -79,14 +78,6 @@ Any changes made to that file afterwards will need `prison trust` again. To
 trust without a prompt, use the `--yes` flag.
 
 #### `[prison]`
-
-##### `cage` (global)
-
-This determines which backend a box runs on. The default is `apple-container`
-for macOS and `aws-firecracker` for Linux. To see all the available cages on
-your build, run `prison cage list`.
-
-This key is not available in the local `prison.toml`.
 
 ##### `inmates`
 
@@ -254,7 +245,6 @@ config files:
 | Variable            | Overrides                       | Default                            |
 | ------------------- | ------------------------------- | ---------------------------------- |
 | `PRISON_INMATES`    | `inmates` in both files         | nothing                            |
-| `PRISON_CAGE`       | `cage` in the global file       | `apple-container`                  |
 | `PRISON_PAGER`      | `checkpoint.pager`              | `$PAGER` and `less`, in that order |
 | `PRISON_DIFF_TOOL`  | `checkpoint.diff_tool`          | Prison's own diff tool             |
 | `PRISON_CPUS`       | `box.cpus`                      | `4`                                |
@@ -303,7 +293,6 @@ project:
 project  /Users/you/projects/example
 box      example-4d4e34b88286.prison
 state    /Users/you/.prison/projects/4d4e34b88286
-cage     apple-container, vm isolation
 network  prison
 sudo     no
 inmates  claude

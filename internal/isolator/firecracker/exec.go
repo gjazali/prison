@@ -15,12 +15,12 @@ import (
 	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 	"prison/internal/machine"
 )
 
 func (driver *Driver) Exec(
-	ctx context.Context, spec cage.ExecSpec,
+	ctx context.Context, spec isolator.ExecSpec,
 ) (int, error) {
 	if driver.processOf(spec.Box) == 0 {
 		return 0, fmt.Errorf("box %s is not running", spec.Box)

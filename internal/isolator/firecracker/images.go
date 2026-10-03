@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 const (
@@ -54,7 +54,7 @@ func (driver *Driver) diskPath(tag string) string {
 
 func (driver *Driver) requireStateDirectory() error {
 	if driver.stateDirectory == "" {
-		return errors.New("the aws-firecracker cage has no state directory")
+		return errors.New("the aws-firecracker isolator has no state directory")
 	}
 	return nil
 }
@@ -72,7 +72,8 @@ func (driver *Driver) ImageExists(
 	return err == nil, err
 }
 
-func (driver *Driver) Build(ctx context.Context, spec cage.BuildSpec) error {
+func (driver *Driver) Build(
+	ctx context.Context, spec isolator.BuildSpec) error {
 	if err := driver.requireStateDirectory(); err != nil {
 		return err
 	}

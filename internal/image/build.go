@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 const contextDirectoryMode = 0o755
@@ -18,7 +18,7 @@ const contextDirectoryMode = 0o755
 const contextFileMode = 0o644
 
 func Ensure(
-	ctx context.Context, c cage.Cage, plan *Plan, out io.Writer,
+	ctx context.Context, c isolator.Isolator, plan *Plan, out io.Writer,
 ) error {
 	if out == nil {
 		out = io.Discard
@@ -53,7 +53,7 @@ func Ensure(
 
 // releaseBuilder ignores cancellation so that an interrupted build still
 // releases the builder.
-func releaseBuilder(ctx context.Context, c cage.Cage, out io.Writer) {
+func releaseBuilder(ctx context.Context, c isolator.Isolator, out io.Writer) {
 	err := c.ReleaseBuilder(context.WithoutCancel(ctx))
 	if err != nil {
 		fmt.Fprintf(out, "note      cannot stop the image builder: %v\n", err)
@@ -61,7 +61,7 @@ func releaseBuilder(ctx context.Context, c cage.Cage, out io.Writer) {
 }
 
 func buildStep(
-	ctx context.Context, c cage.Cage, step Step, out io.Writer,
+	ctx context.Context, c isolator.Isolator, step Step, out io.Writer,
 ) error {
 	directory, err := os.MkdirTemp("", "prison-build-")
 	if err != nil {
@@ -73,7 +73,7 @@ func buildStep(
 		return fmt.Errorf("cannot write the build context for %s: %w",
 			step.Tag, err)
 	}
-	err = c.Build(ctx, cage.BuildSpec{
+	err = c.Build(ctx, isolator.BuildSpec{
 		Tag:        step.Tag,
 		Context:    directory,
 		Dockerfile: step.Dockerfile,

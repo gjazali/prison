@@ -19,7 +19,7 @@ var reservedNames = map[string]bool{
 	"up": true, "down": true, "rm": true, "shell": true, "run": true,
 	"trust": true, "checkpoint": true, "setup": true, "ports": true,
 	"status": true, "list": true, "build": true, "doctor": true,
-	"inmate": true, "cage": true, "broker": true, "host": true,
+	"inmate": true, "verify": true, "broker": true, "host": true,
 	"secret": true, "help": true, "version": true,
 }
 

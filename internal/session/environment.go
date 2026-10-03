@@ -13,8 +13,8 @@ import (
 
 	"prison/internal/broker/control"
 	"prison/internal/broker/protocol"
-	"prison/internal/cage"
 	"prison/internal/config"
+	"prison/internal/isolator"
 	"prison/internal/plugin"
 	"prison/internal/state"
 )
@@ -221,19 +221,19 @@ func (s *Session) hostPathForGuestPath(inmate *plugin.Inmate,
 		filepath.FromSlash(relative))
 }
 
-func (s *Session) Mounts(shadowPaths []string) []cage.Mount {
-	mounts := []cage.Mount{{
+func (s *Session) Mounts(shadowPaths []string) []isolator.Mount {
+	mounts := []isolator.Mount{{
 		Source: s.Directory,
 		Target: WorkspaceDir,
 	}}
 	for _, relative := range shadowPaths {
-		mounts = append(mounts, cage.Mount{
+		mounts = append(mounts, isolator.Mount{
 			Source: s.Project.ShadowDir(relative),
 			Target: path.Join(WorkspaceDir, filepath.ToSlash(relative)),
 		})
 	}
 	if directoryExists(filepath.Join(s.Directory, ".git")) {
-		mounts = append(mounts, cage.Mount{
+		mounts = append(mounts, isolator.Mount{
 			Source:   s.Project.EmptyDir(),
 			Target:   WorkspaceDir + "/.git/hooks",
 			ReadOnly: true,
@@ -241,7 +241,7 @@ func (s *Session) Mounts(shadowPaths []string) []cage.Mount {
 	}
 	for _, inmate := range s.Inmates {
 		for _, guestPath := range inmate.Persist.Paths {
-			mounts = append(mounts, cage.Mount{
+			mounts = append(mounts, isolator.Mount{
 				Source: s.hostPathForGuestPath(inmate, guestPath),
 				Target: guestPath,
 			})
@@ -250,7 +250,7 @@ func (s *Session) Mounts(shadowPaths []string) []cage.Mount {
 	return mounts
 }
 
-func (s *Session) Shape(image string, ports []cage.PortMapping,
+func (s *Session) Shape(image string, ports []isolator.PortMapping,
 	shadowPaths []string) *state.BoxShape {
 	recorded := make([][2]int, 0, len(ports))
 	for _, mapping := range ports {

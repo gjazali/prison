@@ -10,7 +10,7 @@ import (
 const (
 	nftTableName = "prison"
 	nftUnitName  = "prison-firewall.service"
-	// nfsPort is open because the aws-firecracker cage shares files over
+	// nfsPort is open because the aws-firecracker isolator shares files over
 	// NFS. The NFS server exports each folder to one box address only.
 	nfsPort = 2049
 )

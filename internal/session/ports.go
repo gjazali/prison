@@ -6,18 +6,19 @@ import (
 	"strconv"
 	"time"
 
-	"prison/internal/cage"
 	"prison/internal/config"
+	"prison/internal/isolator"
 )
 
 const portProbeTimeout = 100 * time.Millisecond
 
-func (s *Session) ResolvePorts() ([]cage.PortMapping, error) {
+func (s *Session) ResolvePorts() ([]isolator.PortMapping, error) {
 	guestPorts, explicit := config.ResolvePorts(s.Overrides, s.Config)
 	if explicit {
-		mappings := make([]cage.PortMapping, 0, len(guestPorts))
+		mappings := make([]isolator.PortMapping, 0, len(guestPorts))
 		for _, port := range guestPorts {
-			mappings = append(mappings, cage.PortMapping{Host: port, Guest: port})
+			mappings = append(mappings,
+				isolator.PortMapping{Host: port, Guest: port})
 		}
 		return mappings, nil
 	}
@@ -31,9 +32,9 @@ func (s *Session) ResolvePorts() ([]cage.PortMapping, error) {
 	if base == 0 {
 		return nil, nil
 	}
-	mappings := make([]cage.PortMapping, 0, len(guestPorts))
+	mappings := make([]isolator.PortMapping, 0, len(guestPorts))
 	for index, guest := range guestPorts {
-		mappings = append(mappings, cage.PortMapping{
+		mappings = append(mappings, isolator.PortMapping{
 			Host:  base + index,
 			Guest: guest,
 		})

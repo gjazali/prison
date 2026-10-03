@@ -43,16 +43,10 @@ func TestRequire(t *testing.T) {
 			if err != nil {
 				t.Errorf("%s: Require = %v, want nil", c.name, err)
 			}
-			if !driver.Available() {
-				t.Errorf("%s: Available = false, want true", c.name)
-			}
 			continue
 		}
 		if err == nil || !strings.Contains(err.Error(), c.wantMessage) {
 			t.Errorf("%s: Require = %v, want %q", c.name, err, c.wantMessage)
-		}
-		if driver.Available() {
-			t.Errorf("%s: Available = true, want false", c.name)
 		}
 	}
 }

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 type recordedBuild struct {
@@ -77,7 +77,7 @@ func writeFile(t *testing.T, path, content string) {
 func TestBuildStoresTheLayout(t *testing.T) {
 	driver, builds := buildDriver(t)
 	ctx := context.Background()
-	spec := cage.BuildSpec{
+	spec := isolator.BuildSpec{
 		Tag:     "prison-base:abc",
 		Context: "/tmp/context",
 		Args:    map[string]string{"UID": "501", "PRISON_FOUNDATION": "x"},
@@ -109,11 +109,11 @@ func TestBuildStoresTheLayout(t *testing.T) {
 func TestBuildUsesStoredImagesAsNamedContexts(t *testing.T) {
 	driver, builds := buildDriver(t)
 	ctx := context.Background()
-	base := cage.BuildSpec{Tag: "prison-base:abc", Context: "/tmp/base"}
+	base := isolator.BuildSpec{Tag: "prison-base:abc", Context: "/tmp/base"}
 	if err := driver.Build(ctx, base); err != nil {
 		t.Fatalf("Build(base) = %v, want nil", err)
 	}
-	inmate := cage.BuildSpec{
+	inmate := isolator.BuildSpec{
 		Tag:        "prison-box:def",
 		Context:    "/tmp/inmate",
 		Dockerfile: "images/Dockerfile",
@@ -137,7 +137,7 @@ func TestBuildUsesStoredImagesAsNamedContexts(t *testing.T) {
 func TestBuildFailureKeepsThePreviousLayout(t *testing.T) {
 	driver, _ := buildDriver(t)
 	ctx := context.Background()
-	spec := cage.BuildSpec{Tag: "prison-base:abc", Context: "/tmp/base"}
+	spec := isolator.BuildSpec{Tag: "prison-base:abc", Context: "/tmp/base"}
 	if err := driver.Build(ctx, spec); err != nil {
 		t.Fatalf("Build = %v, want nil", err)
 	}
@@ -161,7 +161,7 @@ func TestBuildFailureKeepsThePreviousLayout(t *testing.T) {
 func TestEnsureDiskPacksOnce(t *testing.T) {
 	driver, builds := buildDriver(t)
 	ctx := context.Background()
-	spec := cage.BuildSpec{Tag: "prison-box:def", Context: "/tmp/box"}
+	spec := isolator.BuildSpec{Tag: "prison-box:def", Context: "/tmp/box"}
 	if err := driver.Build(ctx, spec); err != nil {
 		t.Fatalf("Build = %v, want nil", err)
 	}

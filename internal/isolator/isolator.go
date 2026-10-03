@@ -1,29 +1,9 @@
-package cage
+package isolator
 
 import (
 	"context"
 	"io"
 )
-
-const (
-	IsolationVM        = "vm"
-	IsolationNamespace = "namespace"
-)
-
-// Capabilities lists the features of a backend. A command that needs a
-// missing feature is hidden or fails.
-type Capabilities struct {
-	Isolation       string
-	GuestAddresses  bool
-	GuestHostnames  bool
-	DNSDomain       bool
-	RouteRepair     bool
-	HostOnlyNetwork bool
-	HostFirewall    bool
-	// ForwardsPorts is true when the broker must forward the ports because
-	// the cage does not publish them.
-	ForwardsPorts bool
-}
 
 // BoxInfo describes one box. `Address` and `Network` are empty when the box is
 // not running or the value is unknown.
@@ -87,7 +67,7 @@ type ExecSpec struct {
 }
 
 // BuildSpec describes one image build. `Dockerfile` is relative to `Context`.
-// An empty `Dockerfile` selects the default of the backend.
+// An empty `Dockerfile` selects the default of the isolator.
 type BuildSpec struct {
 	Tag        string
 	Context    string
@@ -103,7 +83,6 @@ type RouteInfo struct {
 }
 
 // DNSDomain registers a local domain so that box names resolve on the host.
-// A cage without this capability returns nil from `Cage.DNS`.
 type DNSDomain interface {
 	Exists(ctx context.Context, domain string) (bool, error)
 	Describe(domain string) []string
@@ -111,8 +90,8 @@ type DNSDomain interface {
 	RepairHint(domain string) []string
 }
 
-// HostRoute repairs the host route to a box network when the backend loses
-// it. A cage without this capability returns nil from `Cage.Route`.
+// HostRoute repairs the host route to a box network when apple-container
+// loses it.
 type HostRoute interface {
 	Describe(ctx context.Context, gateway string) (*RouteInfo, error)
 	Installed(ctx context.Context, gateway string) (bool, error)
@@ -120,14 +99,11 @@ type HostRoute interface {
 	Install(ctx context.Context, gateway string) error
 }
 
-// Cage is a container backend. `Create` and `Start` return only when the box
-// accepts `Exec`. `Exec` returns an error only when the command cannot run.
-// `ReleaseBuilder` frees the resources that the backend keeps between builds.
-type Cage interface {
-	Name() string
-	Description() string
-	Capabilities() Capabilities
-	Available() bool
+// Base is the part of `Isolator` that every OS shares. `Create` and `Start`
+// return only when the box accepts `Exec`. `Exec` returns an error only when
+// the command cannot run. `ReleaseBuilder` frees the resources that the
+// isolator keeps between builds.
+type Base interface {
 	Require(ctx context.Context) error
 
 	Box(ctx context.Context, name string) (BoxInfo, error)
@@ -146,7 +122,5 @@ type Cage interface {
 	Network(ctx context.Context, name string) (NetworkInfo, error)
 	EnsureNetwork(ctx context.Context, name string) error
 
-	DNS() DNSDomain
-	Route() HostRoute
 	Doctor(ctx context.Context, w io.Writer)
 }

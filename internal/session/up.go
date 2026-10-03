@@ -9,10 +9,10 @@ import (
 
 	"prison"
 	"prison/internal/broker/control"
-	"prison/internal/cage"
 	"prison/internal/config"
 	"prison/internal/hostfw"
 	"prison/internal/image"
+	"prison/internal/isolator"
 	"prison/internal/plugin"
 	"prison/internal/state"
 	"prison/internal/ui"
@@ -22,8 +22,8 @@ import (
 type UpResult struct {
 	Client   *control.Client
 	Image    string
-	Ports    []cage.PortMapping
-	Network  cage.NetworkInfo
+	Ports    []isolator.PortMapping
+	Network  isolator.NetworkInfo
 	Created  bool
 	Shadow   []string
 	Probe    ProbeResult
@@ -32,11 +32,8 @@ type UpResult struct {
 }
 
 func (s *Session) Up(ctx context.Context) (*UpResult, error) {
-	if err := s.Cage.Require(ctx); err != nil {
+	if err := s.Isolator.Require(ctx); err != nil {
 		return nil, err
-	}
-	if s.Cage.Capabilities().Isolation != cage.IsolationVM {
-		ui.Warn("the %s cage shares one kernel with the host", s.Cage.Name())
 	}
 	s.WarnAboutUntrustedConfiguration()
 
@@ -65,10 +62,6 @@ func (s *Session) Up(ctx context.Context) (*UpResult, error) {
 	result.Gateway = network.Gateway
 
 	sudo := config.ResolveSudo(s.Overrides, s.Config)
-	if err := s.refuseSudoOnOpenNetwork(sudo, network); err != nil {
-		return nil, err
-	}
-
 	s.ensureHostDNS(ctx)
 	firewallIsInPlace := s.ensureHostFirewall(ctx, network)
 	s.warnAboutSudoInBox(sudo, firewallIsInPlace)
@@ -220,18 +213,14 @@ func (s *Session) unlockVaultIfNeeded(ctx context.Context,
 	return true, nil
 }
 
-func (s *Session) ensureNetwork(ctx context.Context) (cage.NetworkInfo, error) {
-	if !s.Cage.Capabilities().HostOnlyNetwork {
-		ui.Warn("the %s cage has no host-only network", s.Cage.Name())
-		s.Overrides.Network = "default"
-		return s.Cage.Network(ctx, s.Overrides.Network)
+func (s *Session) ensureNetwork(
+	ctx context.Context) (isolator.NetworkInfo, error) {
+	if err := s.Isolator.EnsureNetwork(ctx, s.Overrides.Network); err != nil {
+		return isolator.NetworkInfo{}, err
 	}
-	if err := s.Cage.EnsureNetwork(ctx, s.Overrides.Network); err != nil {
-		return cage.NetworkInfo{}, err
-	}
-	network, err := s.Cage.Network(ctx, s.Overrides.Network)
+	network, err := s.Isolator.Network(ctx, s.Overrides.Network)
 	if err != nil {
-		return cage.NetworkInfo{}, err
+		return isolator.NetworkInfo{}, err
 	}
 	if !network.HostOnly {
 		return network, fmt.Errorf(
@@ -239,16 +228,6 @@ func (s *Session) ensureNetwork(ctx context.Context) (cage.NetworkInfo, error) {
 			s.Overrides.Network)
 	}
 	return network, nil
-}
-
-func (s *Session) refuseSudoOnOpenNetwork(sudo bool,
-	network cage.NetworkInfo) error {
-	if !sudo || network.HostOnly {
-		return nil
-	}
-	return fmt.Errorf(
-		"sudo needs a host-only network. Remove [box] sudo or use " +
-			"a cage with a host-only network")
 }
 
 func (s *Session) warnAboutSudoInBox(sudo, firewallIsInPlace bool) {
@@ -263,8 +242,8 @@ func (s *Session) warnAboutSudoInBox(sudo, firewallIsInPlace bool) {
 	ui.Warn("this box has sudo")
 }
 
-func (s *Session) hostFirewallIsMissing(network cage.NetworkInfo) bool {
-	if !s.Cage.Capabilities().HostFirewall || network.SubnetV4 == "" {
+func (s *Session) hostFirewallIsMissing(network isolator.NetworkInfo) bool {
+	if network.SubnetV4 == "" {
 		return false
 	}
 	state, err := hostfw.Status(context.Background(),
@@ -275,7 +254,7 @@ func (s *Session) hostFirewallIsMissing(network cage.NetworkInfo) bool {
 	return state != hostfw.StateInstalled && state != hostfw.StateUnsupported
 }
 
-func (s *Session) hostFirewallSpec(network cage.NetworkInfo) hostfw.Spec {
+func (s *Session) hostFirewallSpec(network isolator.NetworkInfo) hostfw.Spec {
 	return hostfw.Spec{
 		SubnetV4:   network.SubnetV4,
 		SubnetV6:   network.SubnetV6,
@@ -317,7 +296,7 @@ func (s *Session) ensureImage(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := image.Ensure(ctx, s.Cage, plan, os.Stderr); err != nil {
+	if err := image.Ensure(ctx, s.Isolator, plan, os.Stderr); err != nil {
 		return "", err
 	}
 	return plan.Final, nil
@@ -382,9 +361,9 @@ func (s *Session) reportRequiredSecrets() {
 // shape drift. `NET_ADMIN` lets the guest agent set its firewall rules.
 func (s *Session) createOrStartBox(
 	ctx context.Context, record *state.ProjectRecord, imageTag string,
-	ports []cage.PortMapping, shadowPaths []string, sudo bool,
+	ports []isolator.PortMapping, shadowPaths []string, sudo bool,
 ) (bool, error) {
-	box, err := s.Cage.Box(ctx, s.BoxName)
+	box, err := s.Isolator.Box(ctx, s.BoxName)
 	if err != nil {
 		return false, err
 	}
@@ -392,7 +371,7 @@ func (s *Session) createOrStartBox(
 	if box.Exists {
 		if !box.Running {
 			ui.Progress("starting %s", s.BoxName)
-			if err := s.Cage.Start(ctx, s.BoxName); err != nil {
+			if err := s.Isolator.Start(ctx, s.BoxName); err != nil {
 				return false, err
 			}
 		}
@@ -406,7 +385,7 @@ func (s *Session) createOrStartBox(
 		return false, err
 	}
 	ui.Progress("creating %s", s.BoxName)
-	spec := cage.CreateSpec{
+	spec := isolator.CreateSpec{
 		Name:         s.BoxName,
 		Image:        imageTag,
 		Network:      s.Overrides.Network,
@@ -418,7 +397,7 @@ func (s *Session) createOrStartBox(
 		Capabilities: []string{"NET_ADMIN"},
 		Command:      []string{"sleep", "infinity"},
 	}
-	if err := s.Cage.Create(ctx, spec); err != nil {
+	if err := s.Isolator.Create(ctx, spec); err != nil {
 		return false, err
 	}
 	record.Box = shape
@@ -581,38 +560,4 @@ func listenerFailureText(listener *control.Listener) string {
 			"this port. Run `prison broker stop` in that root"
 	}
 	return listener.Error
-}
-
-// publishPorts has the broker forward the ports for a cage that cannot
-// publish them.
-func (s *Session) publishPorts(ctx context.Context, client *control.Client,
-	ports []cage.PortMapping) {
-	if !s.Cage.Capabilities().ForwardsPorts || len(ports) == 0 {
-		return
-	}
-	box, err := s.Cage.Box(ctx, s.BoxName)
-	if err != nil || box.Address == "" {
-		ui.Warn("cannot publish the ports because the box has no address")
-		return
-	}
-	request := control.PublishRequest{Address: box.Address}
-	for _, port := range ports {
-		request.Ports = append(request.Ports,
-			control.PortForward{Host: port.Host, Guest: port.Guest})
-	}
-	if err := client.Publish(ctx, s.BoxName, request); err != nil {
-		ui.Warn("cannot publish the ports: %v", err)
-	}
-}
-
-// UnpublishPorts does not start the broker because a stopped broker has no
-// forwards.
-func (e *Environment) UnpublishPorts(ctx context.Context, boxName string) {
-	if !e.Cage.Capabilities().ForwardsPorts {
-		return
-	}
-	client := control.NewClient(e.Root.BrokerSocket())
-	if client.Alive(ctx) {
-		client.Unpublish(ctx, boxName)
-	}
 }

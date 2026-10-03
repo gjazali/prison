@@ -1,5 +1,5 @@
 // Package machine defines the configuration disk and the agent protocol that
-// the aws-firecracker cage and `prison-guest` share.
+// the aws-firecracker isolator and `prison-guest` share.
 package machine
 
 import (

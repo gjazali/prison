@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 func TestIntegrationImageChainAndDisk(t *testing.T) {
@@ -38,7 +38,7 @@ ARG PRISON_BASE
 FROM ${PRISON_BASE}
 RUN echo inmate > /inmate.txt
 `)
-	steps := []cage.BuildSpec{
+	steps := []isolator.BuildSpec{
 		{Tag: "prison-base:integration", Context: baseContext},
 		{
 			Tag:     "prison-box:integration",
@@ -85,7 +85,7 @@ func TestIntegrationBoxLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	kernel := os.DirFS(filepath.Join(repository, "images", "kernel"))
-	state, err := os.MkdirTemp("/tmp", "prison-cage-")
+	state, err := os.MkdirTemp("/tmp", "prison-isolator-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestIntegrationBoxLifecycle(t *testing.T) {
 		t.Fatalf("EnsureNetwork = %v, want nil", err)
 	}
 	var output bytes.Buffer
-	base := cage.BuildSpec{
+	base := isolator.BuildSpec{
 		Tag:     "prison-base:integration",
 		Context: filepath.Join(repository, "images", "base"),
 		Args:    map[string]string{"UID": "501"},
@@ -124,7 +124,7 @@ func TestIntegrationBoxLifecycle(t *testing.T) {
 	}
 	name := "prison-it-box"
 	t.Cleanup(func() { driver.Delete(context.Background(), name) })
-	spec := cage.CreateSpec{
+	spec := isolator.CreateSpec{
 		Name:    name,
 		Image:   base.Tag,
 		Network: "prison-it",
@@ -133,7 +133,7 @@ func TestIntegrationBoxLifecycle(t *testing.T) {
 		Environment: []string{"PRISON_TOKEN=integration",
 			"PRISON_BROKER_PORT=8787"},
 		Command: []string{"sleep", "infinity"},
-		Mounts:  []cage.Mount{{Source: share, Target: "/workspace"}},
+		Mounts:  []isolator.Mount{{Source: share, Target: "/workspace"}},
 	}
 	started := time.Now()
 	if err := driver.Create(ctx, spec); err != nil {
@@ -187,7 +187,7 @@ func TestIntegrationBoxLifecycle(t *testing.T) {
 func assertExecWorks(t *testing.T, driver *Driver, name string) {
 	t.Helper()
 	ctx := context.Background()
-	run := func(spec cage.ExecSpec) (int, string) {
+	run := func(spec isolator.ExecSpec) (int, string) {
 		var stdout bytes.Buffer
 		spec.Box, spec.Stdout, spec.Stderr = name, &stdout, &stdout
 		if spec.Stdin == nil {
@@ -199,7 +199,7 @@ func assertExecWorks(t *testing.T, driver *Driver, name string) {
 		}
 		return status, stdout.String()
 	}
-	status, output := run(cage.ExecSpec{
+	status, output := run(isolator.ExecSpec{
 		Command: []string{"sh", "-c", "id -u; echo $HOME; pwd"},
 		WorkDir: "/workspace", UID: 501, GID: 501,
 	})
@@ -207,25 +207,25 @@ func assertExecWorks(t *testing.T, driver *Driver, name string) {
 		t.Errorf("id = %d, %q, want 501, /home/dev, /workspace", status,
 			output)
 	}
-	status, output = run(cage.ExecSpec{
+	status, output = run(isolator.ExecSpec{
 		Command: []string{"cat"}, Interactive: true,
 		Stdin: strings.NewReader("from the host"),
 	})
 	if status != 0 || output != "from the host" {
 		t.Errorf("cat = %d, %q, want 0, \"from the host\"", status, output)
 	}
-	status, _ = run(cage.ExecSpec{Command: []string{"sh", "-c", "exit 7"}})
+	status, _ = run(isolator.ExecSpec{Command: []string{"sh", "-c", "exit 7"}})
 	if status != 7 {
 		t.Errorf("exit 7 = %d, want 7", status)
 	}
-	status, output = run(cage.ExecSpec{
+	status, output = run(isolator.ExecSpec{
 		Command: []string{"sh", "-c", "test -t 0 && echo terminal"},
 		TTY:     true,
 	})
 	if status != 0 || !strings.Contains(output, "terminal") {
 		t.Errorf("tty = %d, %q, want a terminal", status, output)
 	}
-	_, err := driver.Exec(ctx, cage.ExecSpec{Box: name,
+	_, err := driver.Exec(ctx, isolator.ExecSpec{Box: name,
 		Command: []string{"no-such-command"}, Stdin: strings.NewReader(""),
 		Stdout: io.Discard, Stderr: io.Discard})
 	if err == nil || !strings.Contains(err.Error(), "command not found") {
@@ -237,7 +237,7 @@ func assertExecWorks(t *testing.T, driver *Driver, name string) {
 func assertShareWorks(t *testing.T, driver *Driver, name, share string) {
 	t.Helper()
 	var output bytes.Buffer
-	status, err := driver.Exec(context.Background(), cage.ExecSpec{
+	status, err := driver.Exec(context.Background(), isolator.ExecSpec{
 		Box: name, UID: 501, GID: 501, WorkDir: "/workspace",
 		Command: []string{"sh", "-c",
 			"cat from-host.txt && echo box data > from-box.txt"},

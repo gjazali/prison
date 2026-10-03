@@ -10,26 +10,26 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"prison/internal/cage"
-	"prison/internal/cage/fake"
+	"prison/internal/isolator"
+	"prison/internal/isolator/fake"
 )
 
-type recordingCage struct {
-	*fake.Cage
+type recordingIsolator struct {
+	*fake.Isolator
 	directories map[string]string
 	files       map[string]string
 }
 
-func newRecordingCage() *recordingCage {
-	return &recordingCage{
-		Cage:        fake.New(),
+func newRecordingIsolator() *recordingIsolator {
+	return &recordingIsolator{
+		Isolator:    fake.New(),
 		directories: map[string]string{},
 		files:       map[string]string{},
 	}
 }
 
-func (c *recordingCage) Build(
-	ctx context.Context, spec cage.BuildSpec,
+func (c *recordingIsolator) Build(
+	ctx context.Context, spec isolator.BuildSpec,
 ) error {
 	c.directories[spec.Tag] = spec.Context
 	walkError := filepath.WalkDir(spec.Context, func(
@@ -52,10 +52,10 @@ func (c *recordingCage) Build(
 	if walkError != nil {
 		return walkError
 	}
-	return c.Cage.Build(ctx, spec)
+	return c.Isolator.Build(ctx, spec)
 }
 
-func buildLog(c *recordingCage) []string {
+func buildLog(c *recordingIsolator) []string {
 	var built []string
 	for _, line := range c.Calls {
 		if strings.HasPrefix(line, "Build ") {
@@ -67,7 +67,7 @@ func buildLog(c *recordingCage) []string {
 
 func TestEnsureBuildsEveryMissingStepInOrder(t *testing.T) {
 	plan := planFor(t, testAssets(), testInmates())
-	c := newRecordingCage()
+	c := newRecordingIsolator()
 	var out strings.Builder
 
 	if err := Ensure(t.Context(), c, plan, &out); err != nil {
@@ -101,7 +101,7 @@ func TestEnsureBuildsEveryMissingStepInOrder(t *testing.T) {
 
 func TestEnsureSkipsImagesThatArePresent(t *testing.T) {
 	plan := planFor(t, testAssets(), testInmates())
-	c := newRecordingCage()
+	c := newRecordingIsolator()
 	c.Images[plan.Steps[0].Tag] = true
 	c.Images[plan.Steps[1].Tag] = true
 	var out strings.Builder
@@ -123,7 +123,7 @@ func TestEnsureSkipsImagesThatArePresent(t *testing.T) {
 	}
 }
 
-func releaseCount(c *recordingCage) int {
+func releaseCount(c *recordingIsolator) int {
 	count := 0
 	for _, line := range c.Calls {
 		if line == "ReleaseBuilder" {
@@ -135,7 +135,7 @@ func releaseCount(c *recordingCage) int {
 
 func TestEnsureReleasesTheBuilderOnceAfterBuilding(t *testing.T) {
 	plan := planFor(t, testAssets(), testInmates())
-	c := newRecordingCage()
+	c := newRecordingIsolator()
 
 	if err := Ensure(t.Context(), c, plan, nil); err != nil {
 		t.Fatalf("Ensure error = %v, want nil", err)
@@ -152,7 +152,7 @@ func TestEnsureReleasesTheBuilderOnceAfterBuilding(t *testing.T) {
 
 func TestEnsureKeepsTheBuilderWhenNothingIsBuilt(t *testing.T) {
 	plan := planFor(t, testAssets(), testInmates())
-	c := newRecordingCage()
+	c := newRecordingIsolator()
 	for _, step := range plan.Steps {
 		c.Images[step.Tag] = true
 	}
@@ -169,7 +169,7 @@ func TestEnsureKeepsTheBuilderWhenNothingIsBuilt(t *testing.T) {
 
 func TestEnsureReleasesTheBuilderAfterAFailure(t *testing.T) {
 	plan := planFor(t, testAssets(), testInmates())
-	c := newRecordingCage()
+	c := newRecordingIsolator()
 	c.Fail["Build"] = os.ErrPermission
 
 	if err := Ensure(t.Context(), c, plan, nil); err == nil {
@@ -183,7 +183,7 @@ func TestEnsureReleasesTheBuilderAfterAFailure(t *testing.T) {
 
 func TestEnsureReportsAnUnreleasedBuilderWithoutFailing(t *testing.T) {
 	plan := planFor(t, testAssets(), testInmates())
-	c := newRecordingCage()
+	c := newRecordingIsolator()
 	c.Fail["ReleaseBuilder"] = os.ErrPermission
 	var out strings.Builder
 
@@ -199,7 +199,7 @@ func TestEnsureReportsAnUnreleasedBuilderWithoutFailing(t *testing.T) {
 func TestEnsureLaysOutAndRemovesTheContext(t *testing.T) {
 	inmates := testInmates()
 	plan := planFor(t, testAssets(), inmates)
-	c := newRecordingCage()
+	c := newRecordingIsolator()
 
 	if err := Ensure(t.Context(), c, plan, nil); err != nil {
 		t.Fatalf("Ensure error = %v, want nil", err)
@@ -231,7 +231,7 @@ func TestEnsureRefusesABaseWithoutTheGuestBinary(t *testing.T) {
 	assets := testAssets()
 	delete(assets, "images/base/prison-guest")
 	plan := planFor(t, assets, testInmates())
-	c := newRecordingCage()
+	c := newRecordingIsolator()
 
 	err := Ensure(t.Context(), c, plan, nil)
 	if err == nil {
@@ -247,7 +247,7 @@ func TestEnsureRefusesABaseWithoutTheGuestBinary(t *testing.T) {
 
 func TestEnsureStopsAtTheFirstFailure(t *testing.T) {
 	plan := planFor(t, testAssets(), testInmates())
-	c := newRecordingCage()
+	c := newRecordingIsolator()
 	c.Fail["Build"] = os.ErrPermission
 
 	err := Ensure(t.Context(), c, plan, nil)
@@ -262,9 +262,9 @@ func TestEnsureStopsAtTheFirstFailure(t *testing.T) {
 	}
 }
 
-func TestEnsureReportsAnUnreadableCage(t *testing.T) {
+func TestEnsureReportsAnUnreadableIsolator(t *testing.T) {
 	plan := planFor(t, testAssets(), testInmates())
-	c := newRecordingCage()
+	c := newRecordingIsolator()
 	c.Fail["ImageExists"] = os.ErrPermission
 
 	if err := Ensure(t.Context(), c, plan, nil); err == nil {

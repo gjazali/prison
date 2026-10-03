@@ -20,7 +20,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 	"prison/internal/machine"
 	"prison/internal/nfsexport"
 )
@@ -80,19 +80,19 @@ func (driver *Driver) readBoxRecord(name string) (boxRecord, bool, error) {
 
 func (driver *Driver) Box(
 	ctx context.Context, name string,
-) (cage.BoxInfo, error) {
+) (isolator.BoxInfo, error) {
 	if err := driver.requireStateDirectory(); err != nil {
-		return cage.BoxInfo{}, err
+		return isolator.BoxInfo{}, err
 	}
 	record, found, err := driver.readBoxRecord(name)
 	if err != nil || !found {
-		return cage.BoxInfo{Name: name}, err
+		return isolator.BoxInfo{Name: name}, err
 	}
 	return driver.boxInfo(record), nil
 }
 
-func (driver *Driver) boxInfo(record boxRecord) cage.BoxInfo {
-	info := cage.BoxInfo{
+func (driver *Driver) boxInfo(record boxRecord) isolator.BoxInfo {
+	info := isolator.BoxInfo{
 		Name:    record.Name,
 		Exists:  true,
 		Running: driver.processOf(record.Name) != 0,
@@ -107,7 +107,8 @@ func (driver *Driver) boxInfo(record boxRecord) cage.BoxInfo {
 	return info
 }
 
-func (driver *Driver) ListBoxes(ctx context.Context) ([]cage.BoxInfo, error) {
+func (driver *Driver) ListBoxes(
+	ctx context.Context) ([]isolator.BoxInfo, error) {
 	if err := driver.requireStateDirectory(); err != nil {
 		return nil, err
 	}
@@ -118,7 +119,7 @@ func (driver *Driver) ListBoxes(ctx context.Context) ([]cage.BoxInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot list boxes: %w", err)
 	}
-	var boxes []cage.BoxInfo
+	var boxes []isolator.BoxInfo
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -137,7 +138,8 @@ func (driver *Driver) ListBoxes(ctx context.Context) ([]cage.BoxInfo, error) {
 	return boxes, nil
 }
 
-func (driver *Driver) Create(ctx context.Context, spec cage.CreateSpec) error {
+func (driver *Driver) Create(
+	ctx context.Context, spec isolator.CreateSpec) error {
 	if err := driver.requireStateDirectory(); err != nil {
 		return err
 	}
@@ -197,7 +199,7 @@ func (driver *Driver) Create(ctx context.Context, spec cage.CreateSpec) error {
 }
 
 func (driver *Driver) writeBox(ctx context.Context, record boxRecord,
-	spec cage.CreateSpec, disk string) error {
+	spec isolator.CreateSpec, disk string) error {
 	directory := driver.boxDirectory(record.Name)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return fmt.Errorf("cannot create %s: %w", directory, err)

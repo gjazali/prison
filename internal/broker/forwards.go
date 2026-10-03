@@ -16,8 +16,8 @@ import (
 
 const forwardDialTimeout = 5 * time.Second
 
-// forwardTable publishes box ports on the host loopback for cages that do
-// not publish ports themselves.
+// forwardTable publishes box ports on the host loopback (because Firecracker
+// does not publish them).
 type forwardTable struct {
 	mutex  sync.Mutex
 	byBox  map[string][]net.Listener

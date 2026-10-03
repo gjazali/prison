@@ -24,34 +24,11 @@ func addHostCommands(root *cobra.Command) {
 		Args: cobra.NoArgs,
 	}
 	group.AddCommand(
-		newHostDNSCommand(),
-		newHostRouteCommand(),
 		newHostFirewallCommand(),
 		newHostNFSHelperCommand(),
 	)
+	group.AddCommand(platformHostCommands()...)
 	root.AddCommand(group)
-}
-
-func newHostDNSCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "dns",
-		Short: "register the local domain for boxes",
-		Args: cobra.NoArgs,
-		RunE: func(command *cobra.Command, arguments []string) error {
-			return runHostDNS(command)
-		},
-	}
-}
-
-func newHostRouteCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "route",
-		Short: "route the box network over the host bridge",
-		Args: cobra.NoArgs,
-		RunE: func(command *cobra.Command, arguments []string) error {
-			return runHostRoute(command)
-		},
-	}
 }
 
 func newHostFirewallCommand() *cobra.Command {
@@ -69,100 +46,6 @@ func newHostFirewallCommand() *cobra.Command {
 	return command
 }
 
-func runHostDNS(command *cobra.Command) error {
-	ctx, cancel := commandContext()
-	defer cancel()
-	environment, err := loadEnvironment()
-	if err != nil {
-		return err
-	}
-	if err := environment.Cage.Require(ctx); err != nil {
-		return err
-	}
-	domains := environment.Cage.DNS()
-	if !environment.Cage.Capabilities().DNSDomain || domains == nil {
-		return fmt.Errorf("the %s cage does not support hostnames",
-			environment.Cage.Name())
-	}
-	domain := environment.Overrides.Domain
-	out := command.OutOrStdout()
-
-	registered, err := domains.Exists(ctx, domain)
-	if err != nil {
-		return err
-	}
-	if registered {
-		ui.Progress("`.%s` is registered", domain)
-		printIndentedBlock(out, strings.Join(domains.RepairHint(domain), "\n"))
-		return nil
-	}
-
-	ui.Progress("registering the `.%s` domain", domain)
-	printIndentedBlock(out, strings.Join(domains.Describe(domain), "\n"))
-	fmt.Fprintln(out)
-	if !ui.Confirm("register the domain with sudo?") {
-		return ui.Exit(1, "not registered")
-	}
-	if err := domains.Register(ctx, domain); err != nil {
-		return err
-	}
-	ui.Progress("boxes resolve at <project>-<hash>.%s", domain)
-	printIndentedBlock(out, strings.Join(domains.RepairHint(domain), "\n"))
-	return nil
-}
-
-func runHostRoute(command *cobra.Command) error {
-	ctx, cancel := commandContext()
-	defer cancel()
-	environment, err := loadEnvironment()
-	if err != nil {
-		return err
-	}
-	if err := environment.Cage.Require(ctx); err != nil {
-		return err
-	}
-	routes := environment.Cage.Route()
-	if !environment.Cage.Capabilities().RouteRepair || routes == nil {
-		return fmt.Errorf("the %s cage does not use a bridge",
-			environment.Cage.Name())
-	}
-	network, err := environment.Cage.Network(ctx, environment.Overrides.Network)
-	if err != nil {
-		return err
-	}
-	if network.Gateway == "" {
-		return fmt.Errorf("the %s network has no bridge address. "+
-			"Run `prison up`", environment.Overrides.Network)
-	}
-
-	installed, err := routes.Installed(ctx, network.Gateway)
-	if err != nil {
-		return err
-	}
-	if installed {
-		ui.Progress("the route is in place")
-		return nil
-	}
-
-	routeCommand, err := routes.Command(ctx, network.Gateway)
-	if err != nil {
-		return err
-	}
-	out := command.OutOrStdout()
-	ui.Progress("routing the box network over %s", network.Gateway)
-	printIndentedBlock(out, routeCommand)
-	fmt.Fprintln(out)
-	if !ui.Confirm("add the route with sudo?") {
-		return ui.Exit(1, "canceled")
-	}
-	if err := routes.Install(ctx, network.Gateway); err != nil {
-		return err
-	}
-	ui.Progress("done")
-	ui.Warn("this route can be lost after a restart")
-	return nil
-}
-
 func runHostFirewall(command *cobra.Command, removeRules bool) error {
 	ctx, cancel := commandContext()
 	defer cancel()
@@ -170,14 +53,11 @@ func runHostFirewall(command *cobra.Command, removeRules bool) error {
 	if err != nil {
 		return err
 	}
-	if err := environment.Cage.Require(ctx); err != nil {
+	if err := environment.Isolator.Require(ctx); err != nil {
 		return err
 	}
-	if !environment.Cage.Capabilities().HostFirewall {
-		return fmt.Errorf("the %s cage does not support a firewall",
-			environment.Cage.Name())
-	}
-	network, err := environment.Cage.Network(ctx, environment.Overrides.Network)
+	network, err := environment.Isolator.Network(
+		ctx, environment.Overrides.Network)
 	if err != nil {
 		return err
 	}

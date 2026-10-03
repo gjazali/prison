@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 type fixtureResponse struct {
@@ -222,13 +222,13 @@ func TestEnsureNetworkCreatesMissing(t *testing.T) {
 }
 
 func TestCreateBuildsExpectedArgv(t *testing.T) {
-	spec := cage.CreateSpec{
+	spec := isolator.CreateSpec{
 		Name:    "site-abc.prison",
 		Image:   "prison/box:0da0a03e6e05",
 		Network: "prison",
 		CPUs:    4,
 		Memory:  "4G",
-		Mounts: []cage.Mount{
+		Mounts: []isolator.Mount{
 			{Source: "/host/work", Target: "/workspace"},
 			{
 				Source:   "/host/empty",
@@ -236,7 +236,7 @@ func TestCreateBuildsExpectedArgv(t *testing.T) {
 				ReadOnly: true,
 			},
 		},
-		Ports:        []cage.PortMapping{{Host: 18080, Guest: 8080}},
+		Ports:        []isolator.PortMapping{{Host: 18080, Guest: 8080}},
 		Environment:  []string{"LANG=C.UTF-8", "PRISON_SUDO=yes"},
 		Capabilities: []string{"NET_ADMIN"},
 		Command:      []string{"sleep", "infinity"},
@@ -272,7 +272,7 @@ func TestCreateBuildsExpectedArgv(t *testing.T) {
 }
 
 func TestCreateReportsAStoppedBox(t *testing.T) {
-	spec := cage.CreateSpec{
+	spec := isolator.CreateSpec{
 		Name: "doomed", Image: "prison/box:1", Network: "prison",
 	}
 	runner := newFixtureRunner()
@@ -297,12 +297,12 @@ func TestCreateReportsAStoppedBox(t *testing.T) {
 func TestExecBuildsExpectedArgv(t *testing.T) {
 	cases := []struct {
 		name string
-		spec cage.ExecSpec
+		spec isolator.ExecSpec
 		want string
 	}{
 		{
 			name: "plain",
-			spec: cage.ExecSpec{
+			spec: isolator.ExecSpec{
 				Box:         "site-abc.prison",
 				Command:     []string{"true"},
 				WorkDir:     "/workspace",
@@ -316,7 +316,7 @@ func TestExecBuildsExpectedArgv(t *testing.T) {
 		},
 		{
 			name: "tty",
-			spec: cage.ExecSpec{
+			spec: isolator.ExecSpec{
 				Box:     "site-abc.prison",
 				Command: []string{"bash", "-l"},
 				TTY:     true,
@@ -328,7 +328,7 @@ func TestExecBuildsExpectedArgv(t *testing.T) {
 		},
 		{
 			name: "interactive without a terminal",
-			spec: cage.ExecSpec{
+			spec: isolator.ExecSpec{
 				Box:         "site-abc.prison",
 				Command:     []string{"cat"},
 				Interactive: true,
@@ -366,7 +366,7 @@ func TestBuildSortsArguments(t *testing.T) {
 	runner := newFixtureRunner()
 	runner.answer(want, fixtureResponse{stdout: "built\n"})
 	err := newTestDriver(runner).Build(
-		context.Background(), cage.BuildSpec{
+		context.Background(), isolator.BuildSpec{
 			Tag:     "prison/base:1",
 			Context: "/tmp/ctx",
 			Args:    map[string]string{"VARIANT": "slim", "HOST_UID": "501"},

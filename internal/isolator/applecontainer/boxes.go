@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 const logTailLines = 20
@@ -35,8 +35,8 @@ type boxDocument struct {
 	} `json:"status"`
 }
 
-func (document boxDocument) boxInfo() cage.BoxInfo {
-	info := cage.BoxInfo{
+func (document boxDocument) boxInfo() isolator.BoxInfo {
+	info := isolator.BoxInfo{
 		Name:    document.ID,
 		Exists:  true,
 		Running: document.Status.State == "running",
@@ -57,22 +57,22 @@ func (document boxDocument) boxInfo() cage.BoxInfo {
 
 func (driver *Driver) Box(
 	ctx context.Context, name string,
-) (cage.BoxInfo, error) {
+) (isolator.BoxInfo, error) {
 	var documents []boxDocument
 	found, err := driver.containerJSON(
 		ctx, &documents, "inspect", name)
 	if err != nil {
-		return cage.BoxInfo{}, err
+		return isolator.BoxInfo{}, err
 	}
 	if !found || len(documents) == 0 {
-		return cage.BoxInfo{Name: name}, nil
+		return isolator.BoxInfo{Name: name}, nil
 	}
 	return documents[0].boxInfo(), nil
 }
 
 func (driver *Driver) ListBoxes(
 	ctx context.Context,
-) ([]cage.BoxInfo, error) {
+) ([]isolator.BoxInfo, error) {
 	var documents []boxDocument
 	found, err := driver.containerJSON(
 		ctx, &documents, "ls", "--all", "--format", "json")
@@ -83,7 +83,7 @@ func (driver *Driver) ListBoxes(
 		return nil, fmt.Errorf(
 			"cannot list boxes. Run `container system start`")
 	}
-	boxes := make([]cage.BoxInfo, 0, len(documents))
+	boxes := make([]isolator.BoxInfo, 0, len(documents))
 	for _, document := range documents {
 		boxes = append(boxes, document.boxInfo())
 	}
@@ -93,7 +93,7 @@ func (driver *Driver) ListBoxes(
 	return boxes, nil
 }
 
-func createArguments(spec cage.CreateSpec) []string {
+func createArguments(spec isolator.CreateSpec) []string {
 	arguments := []string{
 		"run", "--detach", "--name", spec.Name,
 		"--network", spec.Network,
@@ -133,7 +133,7 @@ func createArguments(spec cage.CreateSpec) []string {
 }
 
 func (driver *Driver) Create(
-	ctx context.Context, spec cage.CreateSpec,
+	ctx context.Context, spec isolator.CreateSpec,
 ) error {
 	_, stderr, status, err := driver.runCapturing(
 		ctx, containerBinary, createArguments(spec)...)
@@ -212,7 +212,7 @@ func (driver *Driver) Logs(
 	return nil
 }
 
-func execArguments(spec cage.ExecSpec) []string {
+func execArguments(spec isolator.ExecSpec) []string {
 	arguments := []string{"exec"}
 	if spec.TTY {
 		arguments = append(arguments, "--tty", "--interactive")
@@ -233,7 +233,7 @@ func execArguments(spec cage.ExecSpec) []string {
 }
 
 func (driver *Driver) Exec(
-	ctx context.Context, spec cage.ExecSpec,
+	ctx context.Context, spec isolator.ExecSpec,
 ) (int, error) {
 	return driver.runner.Run(ctx, Command{
 		Name:           containerBinary,

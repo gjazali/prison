@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 const GuestBinary = "/usr/local/bin/prison-guest"
@@ -35,7 +35,7 @@ func (s *Session) Exec(ctx context.Context, request ExecRequest) (int, error) {
 	if workDir == "" {
 		workDir = WorkspaceDir
 	}
-	return s.Cage.Exec(ctx, cage.ExecSpec{
+	return s.Isolator.Exec(ctx, isolator.ExecSpec{
 		Box:         s.BoxName,
 		Command:     request.Command,
 		TTY:         request.TTY,
@@ -137,7 +137,7 @@ func (s *Session) WaitUntilReady(ctx context.Context) error {
 }
 
 func (s *Session) RequireRunning(ctx context.Context) error {
-	box, err := s.Cage.Box(ctx, s.BoxName)
+	box, err := s.Isolator.Box(ctx, s.BoxName)
 	if err != nil {
 		return err
 	}

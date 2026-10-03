@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 type networkDocument struct {
@@ -19,8 +19,8 @@ type networkDocument struct {
 	} `json:"status"`
 }
 
-func (document networkDocument) networkInfo(name string) cage.NetworkInfo {
-	info := cage.NetworkInfo{
+func (document networkDocument) networkInfo(name string) isolator.NetworkInfo {
+	info := isolator.NetworkInfo{
 		Name:     document.Configuration.Name,
 		Exists:   true,
 		HostOnly: document.Configuration.Mode == "hostOnly",
@@ -36,15 +36,15 @@ func (document networkDocument) networkInfo(name string) cage.NetworkInfo {
 
 func (driver *Driver) Network(
 	ctx context.Context, name string,
-) (cage.NetworkInfo, error) {
+) (isolator.NetworkInfo, error) {
 	var documents []networkDocument
 	found, err := driver.containerJSON(
 		ctx, &documents, "network", "inspect", name)
 	if err != nil {
-		return cage.NetworkInfo{}, err
+		return isolator.NetworkInfo{}, err
 	}
 	if !found || len(documents) == 0 {
-		return cage.NetworkInfo{Name: name}, nil
+		return isolator.NetworkInfo{Name: name}, nil
 	}
 	return documents[0].networkInfo(name), nil
 }

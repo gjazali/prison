@@ -12,7 +12,7 @@ func TestLoadGlobalAbsentFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadGlobal error = %v, want nil", err)
 	}
-	if global.Prison.Cage != nil || global.Prison.Inmates != nil {
+	if global.Prison.Inmates != nil {
 		t.Errorf("LoadGlobal = %+v, want nothing set", global.Prison)
 	}
 	if global.Checkpoint.Pager != nil || global.Checkpoint.DiffTool != nil {
@@ -23,7 +23,6 @@ func TestLoadGlobalAbsentFile(t *testing.T) {
 func TestLoadGlobalAccepts(t *testing.T) {
 	path := writeConfigFile(t, "config.toml", `
 [prison]
-cage = "apple-container"
 inmates = ["claude", "some-tool"]
 
 [checkpoint]
@@ -33,9 +32,6 @@ diff_tool = "delta --side-by-side"
 	global, err := LoadGlobal(path)
 	if err != nil {
 		t.Fatalf("LoadGlobal: %v", err)
-	}
-	if global.Prison.Cage == nil || *global.Prison.Cage != "apple-container" {
-		t.Errorf("cage = %v, want apple-container", global.Prison.Cage)
 	}
 	if global.Prison.Inmates == nil ||
 		strings.Join(*global.Prison.Inmates, ",") != "claude,some-tool" {
@@ -63,7 +59,7 @@ func TestLoadGlobalEmptyInmatesIsDeclared(t *testing.T) {
 		t.Errorf("inmates = %v, want an empty list", *global.Prison.Inmates)
 	}
 
-	absent := writeConfigFile(t, "config.toml", "[prison]\ncage = \"fake\"\n")
+	absent := writeConfigFile(t, "config.toml", "[prison]\n")
 	global, err = LoadGlobal(absent)
 	if err != nil {
 		t.Fatalf("LoadGlobal: %v", err)
@@ -78,10 +74,9 @@ func TestLoadGlobalRefuses(t *testing.T) {
 		rule string
 		text string
 	}{
-		{"unknown table", "[proson]\ncage = \"fake\"\n"},
+		{"unknown table", "[proson]\ninmates = []\n"},
 		{"unknown key", "[prison]\ninmate = [\"claude\"]\n"},
-		{"key outside a table", "cage = \"fake\"\n"},
-		{"cage name", "[prison]\ncage = \"Apple Container\"\n"},
+		{"key outside a table", "inmates = []\n"},
 		{"inmate name", "[prison]\ninmates = [\"Claude\"]\n"},
 		{"inmates type", "[prison]\ninmates = \"claude\"\n"},
 		{"pager on one line", "[checkpoint]\npager = \"less\\n-R\"\n"},

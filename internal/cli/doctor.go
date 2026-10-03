@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"prison/internal/broker/control"
-	"prison/internal/cage"
+	"prison/internal/isolator"
 	"prison/internal/config"
 	"prison/internal/hostfw"
 	"prison/internal/session"
@@ -49,7 +49,7 @@ func runDoctor(command *cobra.Command) error {
 		environment: environment,
 	}
 	report.reportPrison()
-	report.reportCage(ctx)
+	report.reportIsolator(ctx)
 	network := report.reportNetwork(ctx)
 	report.reportBroker(ctx)
 	report.reportFirewall(ctx, network)
@@ -104,38 +104,18 @@ func (report *doctorReport) reportPrison() {
 	report.detail("broker port", "%d", overrides.BrokerPort)
 }
 
-func (report *doctorReport) reportCage(ctx context.Context) {
-	selected := report.environment.Cage
-	capabilities := selected.Capabilities()
-	report.heading("cage")
-	report.detail("name", "%s", selected.Name())
-	report.detail("backend", "%s", doctorYesNo(selected.Available(),
-		"installed",
-		"not installed"))
+func (report *doctorReport) reportIsolator(ctx context.Context) {
+	selected := report.environment.Isolator
+	report.heading("isolator")
+	report.detail("name", "%s", session.IsolatorName)
 	if err := selected.Require(ctx); err != nil {
 		report.detail("ready", "no: %v", err)
 	} else {
 		report.detail("ready", "yes")
 	}
-	report.detail("isolation", "%s", capabilities.Isolation)
-	if capabilities.Isolation != cage.IsolationVM {
-		report.note("this backend shares the host kernel")
-	}
-	report.detail("addresses", "%s",
-		doctorYesNo(capabilities.GuestAddresses, "yes", "no"))
-	report.detail("hostnames", "%s",
-		doctorYesNo(capabilities.GuestHostnames, "yes", "no"))
-	report.detail("dns domain", "%s",
-		doctorYesNo(capabilities.DNSDomain, "yes", "no"))
-	report.detail("route repair", "%s",
-		doctorYesNo(capabilities.RouteRepair, "yes", "no"))
-	report.detail("host-only", "%s",
-		doctorYesNo(capabilities.HostOnlyNetwork, "yes", "no"))
-	report.detail("firewall", "%s",
-		doctorYesNo(capabilities.HostFirewall, "yes", "no"))
-	var backendReport strings.Builder
-	selected.Doctor(ctx, &backendReport)
-	if text := strings.TrimRight(backendReport.String(), "\n"); text != "" {
+	var isolatorReport strings.Builder
+	selected.Doctor(ctx, &isolatorReport)
+	if text := strings.TrimRight(isolatorReport.String(), "\n"); text != "" {
 		report.blank()
 		doctorIndent(report.out, text, "  ")
 	}
@@ -143,14 +123,14 @@ func (report *doctorReport) reportCage(ctx context.Context) {
 
 func (report *doctorReport) reportNetwork(
 	ctx context.Context,
-) cage.NetworkInfo {
+) isolator.NetworkInfo {
 	name := report.environment.Overrides.Network
 	report.heading("network")
 	report.detail("name", "%s", name)
-	info, err := report.environment.Cage.Network(ctx, name)
+	info, err := report.environment.Isolator.Network(ctx, name)
 	if err != nil {
 		report.note("cannot get the network state: %v", err)
-		return cage.NetworkInfo{Name: name}
+		return isolator.NetworkInfo{Name: name}
 	}
 	if !info.Exists {
 		report.note("the %s network does not exist. Run `prison up`", name)
@@ -202,14 +182,9 @@ func (report *doctorReport) reportBroker(ctx context.Context) {
 }
 
 func (report *doctorReport) reportFirewall(
-	ctx context.Context, network cage.NetworkInfo,
+	ctx context.Context, network isolator.NetworkInfo,
 ) {
 	report.heading("firewall")
-	if !report.environment.Cage.Capabilities().HostFirewall {
-		report.note("the %s cage does not support a firewall",
-			report.environment.Cage.Name())
-		return
-	}
 	if network.SubnetV4 == "" {
 		report.note("the box network has no subnet. Run `prison up`")
 		report.detail("read rules", "%s", hostfw.ReadCommand())
@@ -379,13 +354,6 @@ func doctorShortenHome(path, homeDirectory string) string {
 		return "~" + strings.TrimPrefix(path, homeDirectory)
 	}
 	return path
-}
-
-func doctorYesNo(condition bool, whenTrue, whenFalse string) string {
-	if condition {
-		return whenTrue
-	}
-	return whenFalse
 }
 
 func doctorIndent(w io.Writer, text, prefix string) {

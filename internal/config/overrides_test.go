@@ -13,7 +13,7 @@ func TestReadOverridesDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadOverrides: %v", err)
 	}
-	if overrides.Inmates != nil || overrides.Cage != nil ||
+	if overrides.Inmates != nil ||
 		overrides.Pager != nil || overrides.DiffTool != nil ||
 		overrides.CPUs != nil || overrides.Memory != nil ||
 		overrides.Sudo != nil || overrides.Ports != nil {
@@ -39,7 +39,6 @@ func TestReadOverridesReadsEverything(t *testing.T) {
 	overrides, err := ReadOverrides(mapGetenv(map[string]string{
 		"HOME":               "/Users/example",
 		"PRISON_INMATES":     "claude some-tool",
-		"PRISON_CAGE":        "apple-container",
 		"PRISON_PAGER":       "less -R",
 		"PRISON_DIFF_TOOL":   "delta",
 		"PRISON_CPUS":        "2",
@@ -60,9 +59,6 @@ func TestReadOverridesReadsEverything(t *testing.T) {
 	}
 	if strings.Join(*overrides.Inmates, ",") != "claude,some-tool" {
 		t.Errorf("inmates = %v, want two of them", *overrides.Inmates)
-	}
-	if *overrides.Cage != "apple-container" {
-		t.Errorf("cage = %q, want apple-container", *overrides.Cage)
 	}
 	if *overrides.Pager != "less -R" || *overrides.DiffTool != "delta" {
 		t.Errorf("pager, diff tool = %q, %q, want less -R, delta",
@@ -133,7 +129,6 @@ func TestReadOverridesRefuses(t *testing.T) {
 		variables map[string]string
 	}{
 		{"inmate name", map[string]string{"PRISON_INMATES": "Claude"}},
-		{"cage name", map[string]string{"PRISON_CAGE": "Apple Container"}},
 		{"cpu count", map[string]string{"PRISON_CPUS": "99"}},
 		{"cpu count is a number", map[string]string{"PRISON_CPUS": "many"}},
 		{"memory size", map[string]string{"PRISON_MEMORY": "8"}},

@@ -1,5 +1,5 @@
-// Package firecracker implements `cage.Cage` with AWS Firecracker on Linux.
-// Each box runs in its own microVM.
+// Package firecracker implements `isolator.Isolator` with AWS Firecracker on
+// Linux. Each box runs in its own microVM.
 package firecracker
 
 import (
@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 const (
@@ -64,27 +64,6 @@ func New(stateDirectory string, kernel fs.FS) *Driver {
 	}
 }
 
-func (driver *Driver) Name() string { return "aws-firecracker" }
-
-func (driver *Driver) Description() string {
-	return "AWS Firecracker, one microVM per box"
-}
-
-func (driver *Driver) Capabilities() cage.Capabilities {
-	return cage.Capabilities{
-		Isolation:       cage.IsolationVM,
-		GuestAddresses:  true,
-		HostOnlyNetwork: true,
-		HostFirewall:    true,
-		ForwardsPorts:   true,
-	}
-}
-
-func (driver *Driver) Available() bool {
-	_, err := driver.lookPath(firecrackerBinary)
-	return err == nil && driver.deviceIsUsable(kvmDevicePath)
-}
-
 func (driver *Driver) Require(ctx context.Context) error {
 	if _, err := driver.lookPath(firecrackerBinary); err != nil {
 		return fmt.Errorf("`firecracker` not found. Install it from " +
@@ -96,10 +75,6 @@ func (driver *Driver) Require(ctx context.Context) error {
 	}
 	return nil
 }
-
-func (driver *Driver) DNS() cage.DNSDomain { return nil }
-
-func (driver *Driver) Route() cage.HostRoute { return nil }
 
 func (driver *Driver) Doctor(ctx context.Context, w io.Writer) {
 	path, err := driver.lookPath(firecrackerBinary)
@@ -168,4 +143,4 @@ func firstLineOfVersion(ctx context.Context, path string) (string, error) {
 	return string(output), nil
 }
 
-var _ cage.Cage = (*Driver)(nil)
+var _ isolator.Base = (*Driver)(nil)

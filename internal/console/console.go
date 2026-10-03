@@ -1,5 +1,5 @@
-// Package console gives the cage a pty so that the user terminal can stay
-// raw. The cage `exec` keeps output post-processing on, and this breaks
+// Package console gives the isolator a pty so that the user terminal can stay
+// raw. The isolator `exec` keeps output post-processing on, and this breaks
 // programs that draw relative to the cursor.
 package console
 
@@ -35,7 +35,7 @@ func Open() (*Console, error) {
 			return nil, err
 		}
 	}
-	// The cage resets this when it starts. Raw mode stops early echo.
+	// The isolator resets this when it starts. Raw mode stops early echo.
 	if _, err := term.MakeRaw(int(lentTerminal.Fd())); err != nil {
 		console.release()
 		return nil, fmt.Errorf("cannot set the pty to raw mode: %w", err)

@@ -49,7 +49,7 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
-  cage:
+  isolator:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -109,4 +109,4 @@ jobs:
           key: kernel-amd64-${{ hashFiles('kernel/**') }}
       - run: make build
       - run: bin/prison doctor || true
-      - run: make test-cage
+      - run: make test-isolator

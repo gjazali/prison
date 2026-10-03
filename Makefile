@@ -6,7 +6,7 @@ KERNEL := images/kernel/linux-$(GUEST_GOARCH).gz
 VERSION ?= $(shell date +%Y%m%d)-dev
 LDFLAGS := -s -w -X prison/internal/cli.Version=$(VERSION)
 
-.PHONY: all build guest host kernel test test-guest test-broker test-cage \
+.PHONY: all build guest host kernel test test-guest test-broker test-isolator \
 	lint install clean
 
 all: build
@@ -42,10 +42,10 @@ test-guest: guest
 test-broker:
 	go test -tags integration ./internal/broker/... -run Integration -v
 
-# test-cage boots microVMs. It needs Linux with KVM, sudo, and the tools that
-# `prison doctor` lists for the aws-firecracker cage.
-test-cage: build
-	go test -tags integration ./internal/cage/firecracker/... \
+# test-isolator boots microVMs. It needs Linux with KVM, sudo, and the tools
+# that `prison doctor` lists for the aws-firecracker isolator.
+test-isolator: build
+	go test -tags integration ./internal/isolator/firecracker/... \
 		./internal/hostfw/... -run Integration -v
 
 lint:

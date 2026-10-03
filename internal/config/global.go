@@ -1,15 +1,13 @@
 package config
 
 var globalSchema = tableSchema{
-	"prison":     {"cage", "inmates"},
+	"prison":     {"inmates"},
 	"checkpoint": {"pager", "diff_tool"},
 }
 
-// GlobalPrison holds the default cage and inmates for every box. A nil
-// field means that the key is absent. An empty list means none and stops
-// the lookup.
 type GlobalPrison struct {
-	Cage    *string   `toml:"cage"`
+	// Inmates is nil when the key is absent. An empty list means no inmates
+	// and stops the lookup.
 	Inmates *[]string `toml:"inmates"`
 }
 
@@ -42,11 +40,6 @@ func LoadGlobal(path string) (*Global, error) {
 }
 
 func (global *Global) validate() error {
-	if global.Prison.Cage != nil {
-		if err := ValidateName("cage", *global.Prison.Cage); err != nil {
-			return err
-		}
-	}
 	if global.Prison.Inmates != nil {
 		for _, inmate := range *global.Prison.Inmates {
 			if err := ValidateName("inmate", inmate); err != nil {

@@ -12,10 +12,10 @@ func TestDoctorEnvironmentNamesKeepsNamesOnly(t *testing.T) {
 		"PATH=/usr/bin",
 		"PRISON_ROOT=/Users/you/.prison",
 		"HOME=/Users/you",
-		"PRISON_CAGE=apple-container",
+		"PRISON_DOMAIN=cells",
 		"PRISONER=not ours",
 	})
-	want := []string{"PRISON_CAGE", "PRISON_ROOT"}
+	want := []string{"PRISON_DOMAIN", "PRISON_ROOT"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Errorf("doctorEnvironmentNames = %v, want %v", names, want)
 	}

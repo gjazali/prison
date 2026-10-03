@@ -32,7 +32,7 @@ func runBuild(command *cobra.Command) error {
 		return fmt.Errorf("PRISON_IMAGE is set to %s. Unset it to build",
 			current.Overrides.Image)
 	}
-	if err := current.Cage.Require(ctx); err != nil {
+	if err := current.Isolator.Require(ctx); err != nil {
 		return err
 	}
 	current.WarnAboutUntrustedConfiguration()

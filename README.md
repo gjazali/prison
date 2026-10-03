@@ -1,7 +1,7 @@
 # Prison
 
-***Note:*** *Documentation on the architecture, and on Inmate and Cage writing,
-is in progress and will be published soon.*
+***Note:*** *Documentation on the architecture, and on Inmate writing, is in
+progress and will be published soon.*
 
 Run processes in a per-project micro-VM, in isolation from your machine.
 
@@ -20,13 +20,13 @@ for more information on the architecture that enable the security of Prison.
 
 When first-class integration is written for a specific tool to run in Prison,
 that tool can be referred to as an **Inmate** (Claude Code is an example of an
-inmate that is shipped with Prison). A micro-VM back-end that is integrated into
-Prison, meanwhile, is called a **Cage** (Prison supports Apple's
+inmate that is shipped with Prison). Prison uses Apple's
 [Container](https://opensource.apple.com/projects/container/) on macOS and
-Amazon's [Firecracker](https://firecracker-microvm.github.io/) on Linux).
+Amazon's [Firecracker](https://firecracker-microvm.github.io/) on Linux as the
+micro-VM back-end.
 
-Both Inmates and Cages use a plugin system, so anyone can write their own and
-users can install them easily.
+Inmates use a plugin system, so anyone can write their own and users can install
+them easily.
 
 ## Quick Start
 

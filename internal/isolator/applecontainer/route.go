@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 // routeHelper reads live host state because the bridge exists only while a
@@ -18,7 +18,7 @@ type routeHelper struct {
 
 func (helper routeHelper) Describe(
 	ctx context.Context, gateway string,
-) (*cage.RouteInfo, error) {
+) (*isolator.RouteInfo, error) {
 	if gateway == "" {
 		return nil, nil
 	}
@@ -41,7 +41,7 @@ func (helper routeHelper) Describe(
 	if err != nil {
 		return nil, err
 	}
-	return &cage.RouteInfo{
+	return &isolator.RouteInfo{
 		Network:   network,
 		Prefix:    prefix,
 		Interface: interfaceName,
@@ -109,7 +109,7 @@ func (helper routeHelper) Install(
 	return nil
 }
 
-func routeAddCommand(route *cage.RouteInfo) string {
+func routeAddCommand(route *isolator.RouteInfo) string {
 	return fmt.Sprintf(
 		"sudo route -n add -net %s/%d -interface %s",
 		route.Network, route.Prefix, route.Interface)

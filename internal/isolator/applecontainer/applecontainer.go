@@ -1,5 +1,5 @@
-// Package applecontainer implements `cage.Cage` with Apple `container`. Each
-// box runs in its own virtual machine.
+// Package applecontainer implements `isolator.Isolator` with Apple
+// `container`. Each box runs in its own virtual machine.
 package applecontainer
 
 import (
@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"time"
 
-	"prison/internal/cage"
+	"prison/internal/isolator"
 )
 
 const containerBinary = "container"
@@ -30,24 +30,6 @@ func NewWithRunner(runner Runner) *Driver {
 		lookPath:          exec.LookPath,
 		readinessTimeout:  60 * time.Second,
 		readinessInterval: 500 * time.Millisecond,
-	}
-}
-
-func (driver *Driver) Name() string { return "apple-container" }
-
-func (driver *Driver) Description() string {
-	return "Apple `container`, one virtual machine per box"
-}
-
-func (driver *Driver) Capabilities() cage.Capabilities {
-	return cage.Capabilities{
-		Isolation:       cage.IsolationVM,
-		GuestAddresses:  true,
-		GuestHostnames:  true,
-		DNSDomain:       true,
-		RouteRepair:     true,
-		HostOnlyNetwork: true,
-		HostFirewall:    true,
 	}
 }
 
@@ -74,16 +56,16 @@ func (driver *Driver) Require(ctx context.Context) error {
 	return nil
 }
 
-func (driver *Driver) DNS() cage.DNSDomain {
+func (driver *Driver) DNS() isolator.DNSDomain {
 	return dnsHelper{driver: driver}
 }
 
-func (driver *Driver) Route() cage.HostRoute {
+func (driver *Driver) Route() isolator.HostRoute {
 	return routeHelper{driver: driver}
 }
 
 var (
-	_ cage.Cage      = (*Driver)(nil)
-	_ cage.DNSDomain = dnsHelper{}
-	_ cage.HostRoute = routeHelper{}
+	_ isolator.Isolator  = (*Driver)(nil)
+	_ isolator.DNSDomain = dnsHelper{}
+	_ isolator.HostRoute = routeHelper{}
 )
