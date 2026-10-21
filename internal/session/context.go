@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -90,6 +89,7 @@ type Session struct {
 	ConfigPresent bool
 	ConfigTrusted bool
 	ConfigHash    string
+	ConfigContent []byte
 	Config        *config.Project
 	InmateNames   []string
 	Inmates       []*plugin.Inmate
@@ -125,18 +125,8 @@ func (e *Environment) Open(directory string) (*Session, error) {
 		ConfigPath:  filepath.Join(realDirectory, ProjectConfigFileName),
 		BoxName:     project.BoxName(e.Overrides.Domain),
 	}
-	session.ConfigPresent, session.ConfigHash, err = configPresence(session.ConfigPath)
-	if err != nil {
+	if err := session.readConfig(); err != nil {
 		return nil, err
-	}
-	if session.ConfigPresent && record != nil &&
-		record.TrustedConfigSHA256 != "" &&
-		record.TrustedConfigSHA256 == session.ConfigHash {
-		session.ConfigTrusted = true
-		session.Config, err = config.LoadProject(session.ConfigPath)
-		if err != nil {
-			return nil, err
-		}
 	}
 	session.InmateNames = config.ResolveInmates(e.Overrides, session.Config, e.Global)
 	session.Inmates, err = e.Registry.Load(session.InmateNames)
@@ -146,31 +136,26 @@ func (e *Environment) Open(directory string) (*Session, error) {
 	return session, nil
 }
 
-func configPresence(path string) (present bool, hash string, err error) {
-	file, err := os.Open(path)
+// readConfig hashes and decodes one read because the box can swap the
+// file.
+func (s *Session) readConfig() error {
+	content, err := os.ReadFile(s.ConfigPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return false, "", nil
+		return nil
 	}
 	if err != nil {
-		return false, "", err
+		return err
 	}
-	defer file.Close()
-	digest := sha256.New()
-	if _, err := io.Copy(digest, file); err != nil {
-		return false, "", err
+	digest := sha256.Sum256(content)
+	s.ConfigPresent = true
+	s.ConfigContent = content
+	s.ConfigHash = hex.EncodeToString(digest[:])
+	if s.Record == nil || s.Record.TrustedConfigSHA256 != s.ConfigHash {
+		return nil
 	}
-	return true, hex.EncodeToString(digest.Sum(nil)), nil
-}
-
-func HashFile(path string) (string, error) {
-	_, hash, err := configPresence(path)
-	if err != nil {
-		return "", err
-	}
-	if hash == "" {
-		return "", fmt.Errorf("%s does not exist", path)
-	}
-	return hash, nil
+	s.ConfigTrusted = true
+	s.Config, err = config.LoadProject(s.ConfigPath, content)
+	return err
 }
 
 func (e *Environment) ResolveBoxArgument(argument string) (*state.Project, error) {

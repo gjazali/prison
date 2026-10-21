@@ -19,7 +19,7 @@ func writeTrustFixture(t *testing.T, name, content string) string {
 
 func TestUnifiedDifferenceLabelsTheTwoSidesForARenderer(t *testing.T) {
 	trusted := writeTrustFixture(t, "trusted.toml", "[box]\nsudo = false\n")
-	current := writeTrustFixture(t, "prison.toml", "[box]\nsudo = true\n")
+	current := []byte("[box]\nsudo = true\n")
 	difference, err := unifiedDifference(trusted, current)
 	if err != nil {
 		t.Fatalf("unifiedDifference: %v", err)
@@ -36,7 +36,7 @@ func TestUnifiedDifferenceLabelsTheTwoSidesForARenderer(t *testing.T) {
 
 func TestUnifiedDifferenceDropsTheHeaderPrisonPrintsItself(t *testing.T) {
 	trusted := writeTrustFixture(t, "trusted.toml", "[box]\nsudo = false\n")
-	current := writeTrustFixture(t, "prison.toml", "[box]\nsudo = true\n")
+	current := []byte("[box]\nsudo = true\n")
 	difference, err := unifiedDifference(trusted, current)
 	if err != nil {
 		t.Fatalf("unifiedDifference: %v", err)
@@ -55,7 +55,7 @@ func TestUnifiedDifferenceDropsTheHeaderPrisonPrintsItself(t *testing.T) {
 func TestUnifiedDifferenceReportsTwoIdenticalFiles(t *testing.T) {
 	same := "[box]\nsudo = false\n"
 	trusted := writeTrustFixture(t, "trusted.toml", same)
-	current := writeTrustFixture(t, "prison.toml", same)
+	current := []byte(same)
 	if _, err := unifiedDifference(trusted, current); !errors.Is(
 		err, errNoDifference) {
 		t.Errorf("unifiedDifference error = %v, want errNoDifference", err)

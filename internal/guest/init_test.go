@@ -28,12 +28,15 @@ func TestReadInitConfiguration(t *testing.T) {
 	got, err = readInitConfiguration([]string{"bash"},
 		environment(map[string]string{"PRISON_TOKEN": "t",
 			"PRISON_BROKER_PORT": "18787", "PRISON_SUDO": "yes",
-			"PRISON_PERSIST_PATHS": "/home/dev:/workspace/.venv:"}))
+			"PRISON_PERSIST_PATHS":   "/home/dev:/workspace/.venv:",
+			"PRISON_READ_ONLY_FILES": "/workspace/.git/config"}))
 	if err != nil || got.brokerPort != 18787 || !got.sudo ||
 		!reflect.DeepEqual(got.persistPaths,
-			[]string{"/home/dev", "/workspace/.venv"}) {
+			[]string{"/home/dev", "/workspace/.venv"}) ||
+		!reflect.DeepEqual(got.readOnlyFiles,
+			[]string{"/workspace/.git/config"}) {
 		t.Fatalf("readInitConfiguration(overrides) = %+v, %v, want port "+
-			"18787, sudo, and two paths", got, err)
+			"18787, sudo, two paths, and one read-only file", got, err)
 	}
 	if _, err := readInitConfiguration(nil,
 		environment(map[string]string{"PRISON_TOKEN": "t"})); err == nil {

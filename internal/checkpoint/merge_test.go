@@ -382,3 +382,27 @@ func TestPlanMergeCustomLabel(t *testing.T) {
 		t.Errorf("Conflicted = %d, want 6", result.Conflicted)
 	}
 }
+
+func TestMergeDoesNotWriteThroughALinkedDirectory(t *testing.T) {
+	store := newTestStore(t)
+	writeProjectFile(t, store, "dir/f", "one\n", 0o644)
+	mustTake(t, store, "base")
+	writeProjectFile(t, store, "dir/f", "two\n", 0o644)
+	mustTake(t, store, "theirs")
+	if _, err := store.RestoreWithoutAutomatic("0001"); err != nil {
+		t.Fatalf("RestoreWithoutAutomatic: %v", err)
+	}
+	outside := filepath.Join(filepath.Dir(store.Project), "outside")
+	if err := os.Mkdir(outside, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	removeProject(t, store, "dir")
+	linkProject(t, store, "dir", "../outside")
+
+	if _, err := store.Merge("0002", MergeOptions{}); err == nil {
+		t.Error("Merge = nil, want an error")
+	}
+	if children, _ := os.ReadDir(outside); len(children) != 0 {
+		t.Errorf("outside = %d entries, want none", len(children))
+	}
+}

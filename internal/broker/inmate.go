@@ -37,6 +37,10 @@ func (broker *Broker) inmateHandler(projectID, inmate string) http.Handler {
 		if prefix == "" {
 			prefix = "/"
 		}
+		if !isCanonicalPath(r.URL) {
+			refuse(http.StatusBadRequest, errPathNotCanonical.Error())
+			return
+		}
 		if !strings.HasPrefix(r.URL.Path, prefix) {
 			refuse(http.StatusNotFound, "path is not proxied")
 			return

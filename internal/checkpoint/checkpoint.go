@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -197,27 +198,31 @@ func formatManifest(manifest Manifest) []byte {
 	return []byte(builder.String())
 }
 
-func parseManifest(data []byte) Manifest {
+// parseManifest will fail on any bad line because restore will delete
+// unlisted paths.
+func parseManifest(data []byte) (Manifest, error) {
 	manifest := Manifest{}
-	for _, line := range strings.Split(string(data), "\n") {
+	for number, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSuffix(line, "\r")
 		if line == "" {
 			continue
 		}
 		fields := strings.SplitN(line, "\t", 4)
 		if len(fields) != 4 {
-			continue
+			return nil, fmt.Errorf("line %d is not valid", number+1)
 		}
 		mode, err := strconv.Atoi(fields[1])
-		if err != nil {
-			continue
+		kind := Kind(fields[0])
+		if err != nil || (kind != KindFile && kind != KindLink &&
+			kind != KindDirectory) || !filepath.IsLocal(fields[3]) {
+			return nil, fmt.Errorf("line %d is not valid", number+1)
 		}
 		manifest = append(manifest, Entry{
-			Kind:   Kind(fields[0]),
+			Kind:   kind,
 			Mode:   os.FileMode(mode).Perm(),
 			Digest: fields[2],
 			Path:   fields[3],
 		})
 	}
-	return manifest
+	return manifest, nil
 }

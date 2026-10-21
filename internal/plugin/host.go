@@ -38,8 +38,14 @@ func RunHostOperations(
 	if err := os.MkdirAll(persistedHome, 0o700); err != nil {
 		return nil, nil, fmt.Errorf("cannot create %s: %w", persistedHome, err)
 	}
+	// The box can write the persisted home.
+	destination, err := os.OpenRoot(persistedHome)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cannot open %s: %w", persistedHome, err)
+	}
+	defer destination.Close()
 	for _, entry := range host.Copy {
-		copied, note, err := copyHostEntry(root, persistedHome, entry)
+		copied, note, err := copyHostEntry(root, destination, entry)
 		if err != nil {
 			return carried, notes, err
 		}
@@ -52,7 +58,7 @@ func RunHostOperations(
 	}
 	for _, operation := range host.JSON {
 		written, operationNotes, err := runJSONOperation(
-			root, persistedHome, operation, placeholders)
+			root, destination, operation, placeholders)
 		notes = append(notes, operationNotes...)
 		if err != nil {
 			return carried, notes, err
@@ -73,17 +79,16 @@ func contains(values []string, wanted string) bool {
 	return false
 }
 
-func copyHostEntry(root, persistedHome, entry string) (bool, string, error) {
+func copyHostEntry(
+	root string, destination *os.Root, entry string,
+) (bool, string, error) {
 	wantsDirectory := strings.HasSuffix(entry, "/")
 	relative := strings.TrimSuffix(entry, "/")
 	source, err := resolveInside(root, relative)
 	if err != nil {
 		return false, "", err
 	}
-	destination, err := resolveInside(persistedHome, relative)
-	if err != nil {
-		return false, "", err
-	}
+	name := filepath.FromSlash(relative)
 	info, err := os.Stat(source)
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, fmt.Sprintf(
@@ -97,18 +102,19 @@ func copyHostEntry(root, persistedHome, entry string) (bool, string, error) {
 			"skipped %s because its type does not match the host", entry), nil
 	}
 	if wantsDirectory {
-		if err := mergeDirectory(source, destination); err != nil {
+		if err := mergeDirectory(source, destination, name); err != nil {
 			return false, "", err
 		}
 		return true, "", nil
 	}
-	if err := copyFile(source, destination, info.Mode().Perm()); err != nil {
+	err = copyHostFile(source, destination, name, info.Mode().Perm())
+	if err != nil {
 		return false, "", err
 	}
 	return true, "", nil
 }
 
-func mergeDirectory(source, destination string) error {
+func mergeDirectory(source string, destination *os.Root, name string) error {
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -120,9 +126,12 @@ func mergeDirectory(source, destination string) error {
 		if err != nil {
 			return err
 		}
-		target := filepath.Join(destination, relative)
+		target := filepath.Join(name, relative)
 		if entry.IsDir() {
-			return os.MkdirAll(target, 0o700)
+			if err := destination.MkdirAll(target, 0o700); err != nil {
+				return fmt.Errorf("cannot create %s: %w", target, err)
+			}
+			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -131,27 +140,36 @@ func mergeDirectory(source, destination string) error {
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		return copyFile(path, target, info.Mode().Perm())
+		return copyHostFile(path, destination, target, info.Mode().Perm())
 	})
 }
 
+func copyHostFile(
+	source string, destination *os.Root, name string, mode fs.FileMode,
+) error {
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return fmt.Errorf("cannot read %s: %w", source, err)
+	}
+	return writeInside(destination, name, data, mode)
+}
+
 func runJSONOperation(
-	root, persistedHome string, operation HostJSONOperation,
+	root string, destination *os.Root, operation HostJSONOperation,
 	placeholders Placeholders,
 ) (bool, []string, error) {
 	var notes []string
-	destination, err := resolveInside(persistedHome, operation.To)
-	if err != nil {
-		return false, notes, err
-	}
-	source := destination
+	name := filepath.FromSlash(operation.To)
+	read, source := destination.ReadFile, name
 	if operation.From != "" {
+		var err error
 		source, err = resolveInside(root, operation.From)
 		if err != nil {
 			return false, notes, err
 		}
+		read = os.ReadFile
 	}
-	document, found, readNote := readJSONObject(source)
+	document, found, readNote := readJSONObject(read, source)
 	if readNote != "" {
 		notes = append(notes, readNote)
 	}
@@ -175,7 +193,7 @@ func runJSONOperation(
 		notes = append(notes, appendDotted(
 			document, dotted, replacer.Replace(operation.Append[dotted]), operation.To)...)
 	}
-	if err := writeJSONObject(destination, document); err != nil {
+	if err := writeJSONObject(destination, name, document); err != nil {
 		return false, notes, err
 	}
 	return true, notes, nil
@@ -244,8 +262,10 @@ func containerFor(
 	return container, notes
 }
 
-func readJSONObject(path string) (map[string]any, bool, string) {
-	data, err := os.ReadFile(path)
+func readJSONObject(
+	read func(string) ([]byte, error), path string,
+) (map[string]any, bool, string) {
+	data, err := read(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return map[string]any{}, false, ""
 	}
@@ -261,16 +281,24 @@ func readJSONObject(path string) (map[string]any, bool, string) {
 	return document, true, ""
 }
 
-func writeJSONObject(path string, document map[string]any) error {
+func writeJSONObject(
+	destination *os.Root, name string, document map[string]any,
+) error {
 	data, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
-		return fmt.Errorf("cannot write %s: %w", path, err)
+		return fmt.Errorf("cannot write %s: %w", name, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("cannot create %s: %w", filepath.Dir(path), err)
+	return writeInside(destination, name, append(data, '\n'), 0o600)
+}
+
+func writeInside(
+	destination *os.Root, name string, data []byte, mode fs.FileMode,
+) error {
+	if err := destination.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+		return fmt.Errorf("cannot create %s: %w", filepath.Dir(name), err)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
-		return fmt.Errorf("cannot write %s: %w", path, err)
+	if err := destination.WriteFile(name, data, mode); err != nil {
+		return fmt.Errorf("cannot write %s: %w", name, err)
 	}
 	return nil
 }
@@ -287,7 +315,7 @@ func HostEnvironment(inmate *Inmate, homeDir string) ([]string, error) {
 			return nil, fmt.Errorf("host.environment.pattern %q is not a regular expression: %w",
 				source.Pattern, err)
 		}
-		document, found, _ := readJSONObject(path)
+		document, found, _ := readJSONObject(os.ReadFile, path)
 		if !found {
 			continue
 		}

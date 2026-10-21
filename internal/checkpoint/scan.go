@@ -1,12 +1,14 @@
 package checkpoint
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
-	"path/filepath"
+	"strings"
 )
 
 const maximumTotalBytes = 2 * 1024 * 1024 * 1024
@@ -20,27 +22,33 @@ type Skipped struct {
 
 type scanState struct {
 	store      *Store
+	project    *os.Root
 	entries    Manifest
 	skipped    []Skipped
 	totalBytes int64
 }
 
 func (store *Store) Scan() (Manifest, []Skipped, error) {
-	state := &scanState{store: store, entries: Manifest{}}
-	if err := state.walk("", store.Project); err != nil {
+	project, err := store.openProject()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer project.Close()
+	state := &scanState{store: store, project: project, entries: Manifest{}}
+	if err := state.walk(""); err != nil {
 		return nil, nil, err
 	}
 	state.entries.sortByPath()
 	return state.entries, state.skipped, nil
 }
 
-func (state *scanState) walk(
-	relativeDirectory, absoluteDirectory string) error {
-	children, err := os.ReadDir(absoluteDirectory)
+func (state *scanState) walk(relativeDirectory string) error {
+	children, err := fs.ReadDir(state.project.FS(),
+		cmp.Or(relativeDirectory, "."))
 	if err != nil {
 		if relativeDirectory == "" {
 			return fmt.Errorf("cannot read the project directory %s: %w",
-				absoluteDirectory, err)
+				state.store.Project, err)
 		}
 		state.skip(relativeDirectory, fmt.Sprintf("cannot be read: %v", err))
 		return nil
@@ -50,13 +58,17 @@ func (state *scanState) walk(
 		if relativeDirectory != "" {
 			relativePath = relativeDirectory + "/" + child.Name()
 		}
-		absolutePath := filepath.Join(absoluteDirectory, child.Name())
 		isDirectory := child.IsDir()
 		if state.store.Ignore.Matches(relativePath, isDirectory) {
 			continue
 		}
+		// A line break in a name will add a false line to the manifest.
+		if strings.ContainsAny(child.Name(), "\n\r") {
+			state.skip(relativePath, "the name has a line break")
+			continue
+		}
 		if err := state.record(
-			child, relativePath, absolutePath, isDirectory); err != nil {
+			child, relativePath, isDirectory); err != nil {
 			return err
 		}
 	}
@@ -64,10 +76,9 @@ func (state *scanState) walk(
 }
 
 func (state *scanState) record(
-	child os.DirEntry, relativePath, absolutePath string,
-	isDirectory bool) error {
+	child fs.DirEntry, relativePath string, isDirectory bool) error {
 	if child.Type()&os.ModeSymlink != 0 {
-		target, err := os.Readlink(absolutePath)
+		target, err := state.project.Readlink(relativePath)
 		if err != nil {
 			state.skip(relativePath, fmt.Sprintf("cannot be read: %v", err))
 			return nil
@@ -87,7 +98,7 @@ func (state *scanState) record(
 		}); err != nil {
 			return err
 		}
-		return state.walk(relativePath, absolutePath)
+		return state.walk(relativePath)
 	}
 
 	information, err := child.Info()
@@ -105,7 +116,7 @@ func (state *scanState) record(
 			"Add paths to `[checkpoint] ignore` in prison.toml",
 			maximumTotalBytes/(1024*1024*1024))
 	}
-	digest, err := hashFile(absolutePath)
+	digest, err := hashFile(state.project, relativePath)
 	if err != nil {
 		state.skip(relativePath, fmt.Sprintf("cannot be read: %v", err))
 		return nil
@@ -133,8 +144,8 @@ func (state *scanState) skip(relativePath, reason string) {
 		Skipped{Path: relativePath, Reason: reason})
 }
 
-func hashFile(absolutePath string) (string, error) {
-	handle, err := os.Open(absolutePath)
+func hashFile(project *os.Root, relativePath string) (string, error) {
+	handle, err := project.Open(relativePath)
 	if err != nil {
 		return "", err
 	}

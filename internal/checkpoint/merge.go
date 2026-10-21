@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -192,7 +193,7 @@ func (store *Store) planMergedPath(path string, base, ours, theirs *Entry,
 
 func (store *Store) planMergedFile(path string, base *Entry,
 	ours, theirs Entry, labels mergeLabels) MergePlanEntry {
-	ourData, err := os.ReadFile(filepath.Join(store.Project, path))
+	ourData, err := store.readProjectFile(path)
 	ourLines, ourIsText := textLines(ourData)
 	if err != nil {
 		ourIsText = false
@@ -324,6 +325,11 @@ func (store *Store) mergeBase(theirsID, wanted string) (string, error) {
 // deepest first. So it never removes the parent of a kept path.
 func (store *Store) applyMergePlan(
 	plan []MergePlanEntry, dryRun bool) ([]MergePlanEntry, error) {
+	project, err := store.openProject()
+	if err != nil {
+		return nil, err
+	}
+	defer project.Close()
 	var applied []MergePlanEntry
 	finish := func(err error) ([]MergePlanEntry, error) {
 		slices.SortFunc(applied, func(left, right MergePlanEntry) int {
@@ -335,7 +341,7 @@ func (store *Store) applyMergePlan(
 	for _, item := range plan {
 		if item.Action == MergeWriteEntry && item.isDirectory() {
 			if !dryRun {
-				if err := WriteEntry(store.Project, item.Entry, nil); err != nil {
+				if err := WriteEntry(project, item.Entry, nil); err != nil {
 					return finish(err)
 				}
 			}
@@ -348,7 +354,7 @@ func (store *Store) applyMergePlan(
 			continue
 		}
 		if !dryRun {
-			if err := store.writeMergedPath(item); err != nil {
+			if err := store.writeMergedPath(project, item); err != nil {
 				return finish(err)
 			}
 		}
@@ -365,7 +371,7 @@ func (store *Store) applyMergePlan(
 		return cmp.Compare(right.Path, left.Path)
 	})
 	for _, item := range drops {
-		dropped, err := store.dropMergedPath(item, dryRun)
+		dropped, err := dropMergedPath(project, item, dryRun)
 		if err != nil {
 			return finish(err)
 		}
@@ -381,36 +387,37 @@ func (store *Store) applyMergePlan(
 	return finish(nil)
 }
 
-func (store *Store) writeMergedPath(item MergePlanEntry) error {
+func (store *Store) writeMergedPath(
+	project *os.Root, item MergePlanEntry) error {
 	if item.Action == MergeWriteEntry {
 		content, err := store.Blob(item.Entry.Digest)
 		if err != nil {
 			return fmt.Errorf("the stored contents of %s are missing",
 				item.Path)
 		}
-		return WriteEntry(store.Project, item.Entry, content)
+		return WriteEntry(project, item.Entry, content)
 	}
 	entry := Entry{Kind: KindFile, Mode: item.Mode, Path: item.Path}
 	body := textdiff.Join(item.Lines, item.TrailingNewline)
-	return WriteEntry(store.Project, entry, []byte(body))
+	return WriteEntry(project, entry, []byte(body))
 }
 
 // dropMergedPath removes only empty directories, because the remaining
 // paths are ones that the merge kept.
-func (store *Store) dropMergedPath(
-	item MergePlanEntry, dryRun bool) (bool, error) {
-	absolute := filepath.Join(store.Project, item.Path)
+func dropMergedPath(
+	project *os.Root, item MergePlanEntry, dryRun bool) (bool, error) {
+	name := filepath.FromSlash(item.Path)
 	if item.Entry.Kind == KindDirectory {
 		if dryRun {
-			children, err := os.ReadDir(absolute)
+			children, err := fs.ReadDir(project.FS(), item.Path)
 			return err == nil && len(children) == 0, nil
 		}
-		return os.Remove(absolute) == nil, nil
+		return project.Remove(name) == nil, nil
 	}
 	if dryRun {
 		return true, nil
 	}
-	if err := removePath(absolute); err != nil {
+	if err := removePath(project, name); err != nil {
 		return false, fmt.Errorf("cannot remove %s: %w", item.Path, err)
 	}
 	return true, nil

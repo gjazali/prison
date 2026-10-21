@@ -37,6 +37,24 @@ func Open(dir, projectDirectory string, ignore *Ignore) (*Store, error) {
 	return store, nil
 }
 
+func (store *Store) openProject() (*os.Root, error) {
+	project, err := os.OpenRoot(store.Project)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open the project directory %s: %w",
+			store.Project, err)
+	}
+	return project, nil
+}
+
+func (store *Store) readProjectFile(relativePath string) ([]byte, error) {
+	project, err := store.openProject()
+	if err != nil {
+		return nil, err
+	}
+	defer project.Close()
+	return project.ReadFile(filepath.FromSlash(relativePath))
+}
+
 func formatCheckpointID(number int) string {
 	return fmt.Sprintf("%04d", number)
 }
@@ -159,7 +177,12 @@ func (store *Store) Manifest(identifier string) (Manifest, error) {
 		return nil, fmt.Errorf("cannot read checkpoint %s: %w",
 			identifier, err)
 	}
-	return parseManifest(data), nil
+	manifest, err := parseManifest(data)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read checkpoint %s: %w",
+			identifier, err)
+	}
+	return manifest, nil
 }
 
 func (store *Store) Metadata(identifier string) (Metadata, error) {
@@ -183,8 +206,13 @@ func (store *Store) Take(label string) (Checkpoint, error) {
 	if err != nil {
 		return Checkpoint{}, err
 	}
+	project, err := store.openProject()
+	if err != nil {
+		return Checkpoint{}, err
+	}
+	defer project.Close()
 	for _, entry := range entries {
-		if err := store.storeEntryContent(entry); err != nil {
+		if err := store.storeEntryContent(project, entry); err != nil {
 			return Checkpoint{}, err
 		}
 	}
@@ -227,7 +255,7 @@ func (store *Store) Take(label string) (Checkpoint, error) {
 	return Checkpoint{ID: identifier, Metadata: metadata}, nil
 }
 
-func (store *Store) storeEntryContent(entry Entry) error {
+func (store *Store) storeEntryContent(project *os.Root, entry Entry) error {
 	if entry.Kind == KindDirectory {
 		return nil
 	}
@@ -235,15 +263,14 @@ func (store *Store) storeEntryContent(entry Entry) error {
 	if _, err := os.Lstat(destination); err == nil {
 		return nil
 	}
-	absolute := filepath.Join(store.Project, entry.Path)
 	if entry.Kind == KindLink {
-		target, err := os.Readlink(absolute)
+		target, err := project.Readlink(entry.Path)
 		if err != nil {
 			return fmt.Errorf("cannot read the link %s: %w", entry.Path, err)
 		}
 		return store.writeObject(destination, strings.NewReader(target))
 	}
-	source, err := os.Open(absolute)
+	source, err := project.Open(entry.Path)
 	if err != nil {
 		return fmt.Errorf("cannot read %s: %w", entry.Path, err)
 	}

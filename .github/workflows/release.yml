@@ -3,11 +3,7 @@ name: release
 
 on:
   push:
-    branches: [prod]
     tags: ["*"]
-    paths-ignore:
-      - "docs/**"
-      - "README.md"
 
 permissions:
   contents: read
@@ -26,43 +22,20 @@ jobs:
         with:
           fetch-depth: 0
       - id: select
-        env:
-          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
           if ! git fetch --force origin prod:refs/remotes/origin/prod; then
-            echo "the prod branch does not exist. No tags to build"
+            echo "the prod branch does not exist"
             echo 'tags=[]' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            commits="$(git rev-parse "$GITHUB_REF_NAME^{commit}")"
-          elif [[ "$BEFORE" =~ ^0+$ ]] ||
-            ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            commits="$GITHUB_SHA"
-          else
-            commits="$(git rev-list "$BEFORE..$GITHUB_SHA")"
+          commit="$(git rev-parse "$GITHUB_REF_NAME^{commit}")"
+          if ! git merge-base --is-ancestor "$commit" origin/prod; then
+            echo "$GITHUB_REF_NAME is not on prod. Skipped"
+            echo 'tags=[]' >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          tags=()
-          for commit in $commits; do
-            if ! git merge-base --is-ancestor "$commit" origin/prod; then
-              echo "$commit is not on prod. Skipped"
-              continue
-            fi
-            while read -r tag; do
-              if [[ -z "$tag" ]]; then
-                continue
-              fi
-              if [[ "$GITHUB_REF_TYPE" == "tag" &&
-                "$tag" != "$GITHUB_REF_NAME" ]]; then
-                continue
-              fi
-              tags+=("$tag")
-            done < <(git tag --points-at "$commit")
-          done
-          json="$(printf '%s\n' "${tags[@]}" |
-            jq -Rnc '[inputs | select(length > 0)] | unique')"
-          echo "tags to build: $json"
+          json="$(jq -nc --arg tag "$GITHUB_REF_NAME" '[$tag]')"
           echo "tags=$json" >> "$GITHUB_OUTPUT"
 
   test:

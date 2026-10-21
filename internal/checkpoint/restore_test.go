@@ -131,17 +131,105 @@ func TestRestoreWithoutAutomaticTakesNothing(t *testing.T) {
 func TestRestoreReportsMissingObject(t *testing.T) {
 	store := newTestStore(t)
 	writeProjectFile(t, store, "a.txt", "one\n", 0o644)
-	if _, err := store.Take(""); err != nil {
-		t.Fatalf("Take: %v", err)
-	}
+	mustTake(t, store, "")
+	writeProjectFile(t, store, "a.txt", "two\n", 0o644)
+	writeProjectFile(t, store, "b.txt", "b\n", 0o644)
+	mustTake(t, store, "")
 	manifest := mustManifest(t, store, "0001").Index()
 	if err := os.Remove(
 		store.BlobPath(manifest["a.txt"].Digest)); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
+
 	_, err := store.RestoreWithoutAutomatic("0001")
 	if err == nil || !strings.Contains(err.Error(), "a.txt") {
 		t.Errorf("RestoreWithoutAutomatic = %v, want an error that names a.txt", err)
+	}
+	_, err = store.Restore("0001")
+	if err == nil || !strings.Contains(err.Error(), "a.txt") {
+		t.Errorf("Restore = %v, want an error that names a.txt", err)
+	}
+	if got := readProject(t, store, "b.txt"); got != "b\n" {
+		t.Errorf("b.txt = %q, want b", got)
+	}
+	if got := readProject(t, store, "a.txt"); got != "two\n" {
+		t.Errorf("a.txt = %q, want two", got)
+	}
+	if checkpoints, _ := store.List(); len(checkpoints) != 2 {
+		t.Errorf("List = %d checkpoints, want 2", len(checkpoints))
+	}
+}
+
+func TestRestoreWithoutAutomaticRefusesLocalChanges(t *testing.T) {
+	store := newTestStore(t)
+	writeProjectFile(t, store, "a.txt", "one\n", 0o644)
+	mustTake(t, store, "")
+	writeProjectFile(t, store, "a.txt", "two\n", 0o644)
+	mustTake(t, store, "")
+	writeProjectFile(t, store, "a.txt", "unsaved\n", 0o644)
+
+	_, err := store.RestoreWithoutAutomatic("0001")
+	if err == nil || !strings.Contains(err.Error(),
+		"the project changed since checkpoint 0002") {
+		t.Errorf("RestoreWithoutAutomatic = %v, want a refusal", err)
+	}
+	if got := readProject(t, store, "a.txt"); got != "unsaved\n" {
+		t.Errorf("a.txt = %q, want unsaved", got)
+	}
+}
+
+func TestRestoreKeepsIgnoredFiles(t *testing.T) {
+	store := newTestStore(t, "*.log")
+	writeProjectFile(t, store, "a.txt", "a\n", 0o644)
+	mustTake(t, store, "")
+	writeProjectFile(t, store, "cache/tracked.txt", "t\n", 0o644)
+	writeProjectFile(t, store, "cache/kept.log", "log\n", 0o644)
+	writeProjectFile(t, store, "x/kept.log", "log\n", 0o644)
+	removeProject(t, store, "a.txt")
+	mkdirProject(t, store, "a.txt")
+	writeProjectFile(t, store, "a.txt/kept.log", "log\n", 0o644)
+
+	_, err := store.Restore("0001")
+	if err == nil || !strings.Contains(err.Error(), "a.txt") {
+		t.Errorf("Restore = %v, want an error that names a.txt", err)
+	}
+	for _, path := range []string{
+		"cache/kept.log", "x/kept.log", "a.txt/kept.log",
+	} {
+		if got := readProject(t, store, path); got != "log\n" {
+			t.Errorf("%s = %q, want log", path, got)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(
+		store.Project, "cache/tracked.txt")); !os.IsNotExist(err) {
+		t.Errorf("Lstat(cache/tracked.txt) = %v, want not exist", err)
+	}
+}
+
+func TestWriteEntryStaysInsideTheProject(t *testing.T) {
+	store := newTestStore(t)
+	outside := filepath.Join(filepath.Dir(store.Project), "outside")
+	if err := os.Mkdir(outside, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	linkProject(t, store, "dir", "../outside")
+	root, err := os.OpenRoot(store.Project)
+	if err != nil {
+		t.Fatalf("OpenRoot: %v", err)
+	}
+	defer root.Close()
+
+	for _, entry := range []Entry{
+		{Kind: KindFile, Path: "dir/f"},
+		{Kind: KindLink, Path: "dir/f"},
+		{Kind: KindDirectory, Path: "dir/f"},
+	} {
+		if err := WriteEntry(root, entry, []byte("x")); err == nil {
+			t.Errorf("WriteEntry(%s) = nil, want an error", entry.Kind)
+		}
+	}
+	if children, _ := os.ReadDir(outside); len(children) != 0 {
+		t.Errorf("outside = %d entries, want none", len(children))
 	}
 }
 
@@ -222,7 +310,12 @@ func TestStepThenRestoreMovesHead(t *testing.T) {
 
 func TestWriteEntry(t *testing.T) {
 	project := t.TempDir()
-	if err := WriteEntry(project,
+	root, err := os.OpenRoot(project)
+	if err != nil {
+		t.Fatalf("OpenRoot: %v", err)
+	}
+	defer root.Close()
+	if err := WriteEntry(root,
 		Entry{Kind: KindDirectory, Path: "nested/inner"}, nil); err != nil {
 		t.Fatalf("WriteEntry: %v", err)
 	}
@@ -233,7 +326,7 @@ func TestWriteEntry(t *testing.T) {
 	}
 
 	entry := Entry{Kind: KindFile, Mode: 0o600, Path: "nested/secret.txt"}
-	if err := WriteEntry(project, entry, []byte("hush\n")); err != nil {
+	if err := WriteEntry(root, entry, []byte("hush\n")); err != nil {
 		t.Fatalf("WriteEntry: %v", err)
 	}
 	information, err := os.Lstat(filepath.Join(project, "nested/secret.txt"))
@@ -245,7 +338,7 @@ func TestWriteEntry(t *testing.T) {
 		t.Error("temporary file exists, want removed")
 	}
 
-	if err := WriteEntry(project,
+	if err := WriteEntry(root,
 		Entry{Kind: KindFile, Path: "nested/secret.txt"},
 		[]byte("again\n")); err != nil {
 		t.Fatalf("WriteEntry: %v", err)
@@ -256,7 +349,7 @@ func TestWriteEntry(t *testing.T) {
 			information.Mode(), err)
 	}
 
-	if err := WriteEntry(project,
+	if err := WriteEntry(root,
 		Entry{Kind: KindLink, Path: "nested/secret.txt"},
 		[]byte("elsewhere.txt")); err != nil {
 		t.Fatalf("WriteEntry: %v", err)

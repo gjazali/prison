@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -34,7 +37,7 @@ func addTrustCommand(root *cobra.Command) {
 	command := &cobra.Command{
 		Use:   "trust",
 		Short: "approve this project's prison.toml",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runTrustCommand(approveWithoutAsking)
 		},
@@ -57,13 +60,11 @@ func runTrustCommand(approveWithoutAsking bool) error {
 		ui.Progress("prison.toml is trusted")
 		return nil
 	}
-	projectConfiguration, err := config.LoadProject(currentSession.ConfigPath)
+	configurationContent := currentSession.ConfigContent
+	projectConfiguration, err := config.LoadProject(
+		currentSession.ConfigPath, configurationContent)
 	if err != nil {
 		return err
-	}
-	configurationContent, err := os.ReadFile(currentSession.ConfigPath)
-	if err != nil {
-		return fmt.Errorf("cannot read %s: %w", currentSession.ConfigPath, err)
 	}
 	diffTool := resolveTrustDiffTool(currentSession)
 	showConfigurationBeingTrusted(currentSession, configurationContent, diffTool)
@@ -84,8 +85,7 @@ func showConfigurationBeingTrusted(
 		fmt.Println(ui.Indent(string(configurationContent), "  "))
 		return
 	}
-	difference, err := unifiedDifference(
-		trustedCopyPath, currentSession.ConfigPath)
+	difference, err := unifiedDifference(trustedCopyPath, configurationContent)
 	if errors.Is(err, errNoDifference) {
 		ui.Progress("prison.toml did not change:")
 		fmt.Println(ui.Indent(string(configurationContent), "  "))
@@ -124,15 +124,17 @@ func resolveTrustDiffTool(currentSession *session.Session) string {
 }
 
 func unifiedDifference(
-	trustedCopyPath, currentPath string,
+	trustedCopyPath string, currentContent []byte,
 ) (string, error) {
 	program, err := exec.LookPath("diff")
 	if err != nil {
 		return "", err
 	}
-	output, err := exec.Command(program, "-u",
+	command := exec.Command(program, "-u",
 		"-L", trustedConfigLabel, "-L", currentConfigLabel,
-		trustedCopyPath, currentPath).Output()
+		trustedCopyPath, "-")
+	command.Stdin = bytes.NewReader(currentContent)
+	output, err := command.Output()
 	if err != nil {
 		var exitError *exec.ExitError
 		if !errors.As(err, &exitError) || exitError.ExitCode() != 1 {
@@ -188,7 +190,8 @@ func recordTrustedConfiguration(
 			Created: time.Now(),
 		}
 	}
-	record.TrustedConfigSHA256 = currentSession.ConfigHash
+	digest := sha256.Sum256(configurationContent)
+	record.TrustedConfigSHA256 = hex.EncodeToString(digest[:])
 	if err := currentSession.Project.SaveRecord(record); err != nil {
 		return err
 	}

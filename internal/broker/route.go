@@ -1,8 +1,11 @@
 package broker
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -38,6 +41,10 @@ func (broker *Broker) routeHandler(projectID, secretName, logKind, successOutcom
 		}
 		spec := secret.Route
 		upstreamHost, _ = vault.SplitUpstream(spec.Upstream)
+		if !isCanonicalPath(r.URL) {
+			refuse(http.StatusBadRequest, errPathNotCanonical.Error())
+			return
+		}
 		if !strings.HasPrefix(r.URL.Path, spec.PathPrefix) {
 			refuse(http.StatusNotFound, fmt.Sprintf(
 				"the %s route only forwards %s", secretName, spec.PathPrefix))
@@ -78,6 +85,27 @@ func (broker *Broker) routeHandler(projectID, secretName, logKind, successOutcom
 			})
 		proxy.ServeHTTP(w, r)
 	})
+}
+
+var errPathNotCanonical = errors.New("the request path is not canonical")
+
+// isCanonicalPath is false for a path that an upstream can normalize to a
+// path outside the prefix.
+func isCanonicalPath(requestURL *url.URL) bool {
+	requestPath := requestURL.Path
+	if requestPath == "" {
+		requestPath = "/"
+	}
+	cleaned := path.Clean(requestPath)
+	if strings.HasSuffix(requestPath, "/") && cleaned != "/" {
+		cleaned += "/"
+	}
+	escaped := strings.ToLower(requestURL.EscapedPath())
+	return cleaned == requestPath &&
+		!strings.Contains(requestPath, `\`) &&
+		!strings.Contains(escaped, "%2e") &&
+		!strings.Contains(escaped, "%2f") &&
+		!strings.Contains(escaped, "%5c")
 }
 
 func containsString(values []string, wanted string) bool {

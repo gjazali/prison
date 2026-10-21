@@ -432,3 +432,19 @@ func TestScanRefusesTooManyEntries(t *testing.T) {
 		t.Errorf("append past the limit = %v, want an error", err)
 	}
 }
+
+func TestScanSkipsLineBreakNames(t *testing.T) {
+	store := newTestStore(t)
+	writeProjectFile(t, store, "a\ndir\t0\t\t..", "x\n", 0o644)
+	writeProjectFile(t, store, "b\r.txt", "x\n", 0o644)
+	manifest, skipped, err := store.Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(manifest) != 0 {
+		t.Errorf("Scan = %+v, want no entries", manifest)
+	}
+	if len(skipped) != 2 {
+		t.Errorf("Scan skipped = %+v, want both names", skipped)
+	}
+}

@@ -61,6 +61,12 @@ func (s *Session) CreationEnvironment(token string, sudo bool,
 		assignments = append(assignments,
 			"PRISON_PERSIST_PATHS="+strings.Join(persistPaths, ":"))
 	}
+	if directoryExists(filepath.Join(s.Directory, ".git")) {
+		// Host git will run commands from `.git/config`, such as
+		// `core.fsmonitor`.
+		assignments = append(assignments,
+			"PRISON_READ_ONLY_FILES="+WorkspaceDir+"/.git/config")
+	}
 	return assignments
 }
 

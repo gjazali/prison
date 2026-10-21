@@ -10,11 +10,12 @@ import (
 )
 
 type initConfiguration struct {
-	token        string
-	brokerPort   int
-	sudo         bool
-	persistPaths []string
-	command      []string
+	token         string
+	brokerPort    int
+	sudo          bool
+	persistPaths  []string
+	readOnlyFiles []string
+	command       []string
 }
 
 func readInitConfiguration(arguments []string,
@@ -43,13 +44,19 @@ func readInitConfiguration(arguments []string,
 	if value, ok := lookupEnv("PRISON_SUDO"); ok {
 		configuration.sudo = value == "yes"
 	}
-	if value, ok := lookupEnv("PRISON_PERSIST_PATHS"); ok {
-		for _, path := range strings.Split(value, ":") {
-			if path != "" {
-				configuration.persistPaths = append(configuration.persistPaths,
-					path)
-			}
+	persistPaths, _ := lookupEnv("PRISON_PERSIST_PATHS")
+	configuration.persistPaths = pathList(persistPaths)
+	readOnlyFiles, _ := lookupEnv("PRISON_READ_ONLY_FILES")
+	configuration.readOnlyFiles = pathList(readOnlyFiles)
+	return configuration, nil
+}
+
+func pathList(value string) []string {
+	var paths []string
+	for _, path := range strings.Split(value, ":") {
+		if path != "" {
+			paths = append(paths, path)
 		}
 	}
-	return configuration, nil
+	return paths
 }

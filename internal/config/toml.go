@@ -30,14 +30,19 @@ func decodeFile(path string, target any, schema tableSchema) (bool, error) {
 	if err != nil {
 		return false, unusable(path, fmt.Errorf("cannot read it: %w", err))
 	}
+	return true, decodeText(path, text, target, schema)
+}
+
+func decodeText(
+	path string, text []byte, target any, schema tableSchema) error {
 	metadata, err := toml.Decode(string(text), target)
 	if err != nil {
-		return true, unusable(path, err)
+		return unusable(path, err)
 	}
 	if err := refuseUnknown(filepath.Base(path), schema, metadata); err != nil {
-		return true, unusable(path, err)
+		return unusable(path, err)
 	}
-	return true, nil
+	return nil
 }
 
 func refuseUnknown(

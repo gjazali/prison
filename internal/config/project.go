@@ -72,18 +72,13 @@ type projectDocument struct {
 	Environment map[string]any `toml:"environment"`
 }
 
-// LoadProject returns an empty Project when the file is missing.
-func LoadProject(path string) (*Project, error) {
+// LoadProject uses the path only in error messages.
+func LoadProject(path string, content []byte) (*Project, error) {
 	document := &projectDocument{}
-	found, err := decodeFile(path, document, projectSchema)
-	if err != nil {
+	if err := decodeText(path, content, document, projectSchema); err != nil {
 		return nil, err
 	}
 	project := &document.Project
-	project.Environment = nil
-	if !found {
-		return project, nil
-	}
 	environment, err := readEnvironment(document.Environment)
 	if err != nil {
 		return nil, unusable(path, err)

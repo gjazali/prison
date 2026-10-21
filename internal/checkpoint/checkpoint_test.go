@@ -3,7 +3,6 @@ package checkpoint
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -97,7 +96,10 @@ func TestManifestRoundTrip(t *testing.T) {
 	if rendered != want {
 		t.Errorf("formatManifest = %q, want %q", rendered, want)
 	}
-	parsed := parseManifest([]byte(rendered))
+	parsed, err := parseManifest([]byte(rendered))
+	if err != nil {
+		t.Fatalf("parseManifest: %v", err)
+	}
 	if len(parsed) != len(manifest) {
 		t.Fatalf("parseManifest = %d entries, want %d",
 			len(parsed), len(manifest))
@@ -109,14 +111,20 @@ func TestManifestRoundTrip(t *testing.T) {
 	}
 }
 
-func TestParseManifestDropsBadLines(t *testing.T) {
-	data := "file\t420\taa\tkept.txt\nfile\tnotanumber\tbb\tbad.txt\ndir\t0\n"
-	parsed := parseManifest([]byte(data))
-	if len(parsed) != 1 || parsed[0].Path != "kept.txt" {
-		t.Errorf("parseManifest = %+v, want kept.txt", parsed)
-	}
-	if parsed[0].Mode != os.FileMode(0o644) {
-		t.Errorf("Mode = %v, want 0644", parsed[0].Mode)
+func TestParseManifestRejectsBadLines(t *testing.T) {
+	for _, line := range []string{
+		"file\tnotanumber\tbb\tbad.txt",
+		"dir\t0",
+		"device\t0\t\tdev",
+		"dir\t0\t\t..",
+		"file\t420\taa\t../outside.txt",
+		"file\t420\taa\t/etc/passwd",
+		"file\t420\taa\t",
+	} {
+		data := "file\t420\taa\tkept.txt\n" + line + "\n"
+		if parsed, err := parseManifest([]byte(data)); err == nil {
+			t.Errorf("parseManifest(%q) = %+v, want an error", line, parsed)
+		}
 	}
 }
 

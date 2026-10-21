@@ -280,6 +280,68 @@ func TestRunHostOperationsRefusesEscape(t *testing.T) {
 	}
 }
 
+func TestRunHostOperationsRefusesSymlinkEscape(t *testing.T) {
+	cases := []struct {
+		name     string
+		host     HostTable
+		link     string
+		isFolder bool
+	}{
+		{name: "json", link: ".claude.json", host: HostTable{
+			Root: "~/.claude",
+			JSON: []HostJSONOperation{{
+				To: ".claude.json", Set: map[string]string{"a": "b"},
+			}},
+		}},
+		{name: "file", link: "CLAUDE.md", host: HostTable{
+			Root: "~/.claude", Copy: []string{"CLAUDE.md"},
+		}},
+		{name: "directory", link: "agents", isFolder: true, host: HostTable{
+			Root: "~/.claude", Copy: []string{"agents/"},
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			home := fakeHome(t, "0f4c1c8e")
+			base := t.TempDir()
+			persisted := filepath.Join(base, "homes", "claude")
+			outside := filepath.Join(base, "outside")
+			if test.isFolder {
+				if err := os.MkdirAll(outside, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				write(t, outside, "host file\n")
+			}
+			if err := os.MkdirAll(persisted, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			err := os.Symlink(filepath.Join("..", "..", "outside"),
+				filepath.Join(persisted, test.link))
+			if err != nil {
+				t.Fatal(err)
+			}
+			inmate := &Inmate{Name: "escape", Manifest: Manifest{Host: test.host}}
+
+			_, _, err = RunHostOperations(inmate, home, persisted, Placeholders{})
+			if err == nil {
+				t.Error("RunHostOperations = nil, want an error")
+			}
+			if test.isFolder {
+				entries, _ := os.ReadDir(outside)
+				if len(entries) != 0 {
+					t.Errorf("outside entries = %v, want none", entries)
+				}
+				return
+			}
+			data, _ := os.ReadFile(outside)
+			if string(data) != "host file\n" {
+				t.Errorf("outside = %q, want %q", data, "host file\n")
+			}
+		})
+	}
+}
+
 func TestRunHostOperationsSetsAndReplaces(t *testing.T) {
 	home := t.TempDir()
 	persisted := t.TempDir()

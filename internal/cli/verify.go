@@ -51,6 +51,7 @@ func runVerify(command *cobra.Command) error {
 	checkSessionUserIsNotRoot(ctx, current, verification)
 	checkWorkspaceIsTheProject(ctx, current, verification)
 	checkGitHooksAreReadOnly(ctx, current, verification)
+	checkGitConfigIsReadOnly(ctx, current, verification)
 	checkHostFilesystemIsNotVisible(ctx, current, verification)
 	checkDirectEgressIsRefused(ctx, current, verification)
 	checkBrokerIsReachable(ctx, current, verification)
@@ -180,6 +181,31 @@ func checkGitHooksAreReadOnly(ctx context.Context,
 		return
 	}
 	verification.pass("git hooks", "read-only from the box, also for root")
+}
+
+func checkGitConfigIsReadOnly(ctx context.Context,
+	current *session.Session, verification *isolationVerification) {
+	if !directoryExistsOnHost(filepath.Join(current.Directory, ".git")) {
+		verification.skip("git config", "this project has no git directory")
+		return
+	}
+	command := ": >> " + quoteForBoxShell(session.WorkspaceDir+"/.git/config")
+	status, _, err := runInBoxShell(ctx, current, command)
+	if err == nil && status == 0 {
+		verification.fail("git config", "writable from the box")
+		return
+	}
+	if !sudoIsGrantedInBox(current) {
+		verification.pass("git config", "read-only from the box")
+		return
+	}
+	status, _, err = runInBoxShell(ctx, current,
+		"sudo -n sh -c "+quoteForBoxShell(command))
+	if err == nil && status == 0 {
+		verification.fail("git config", "writable by root in the box")
+		return
+	}
+	verification.pass("git config", "read-only from the box, also for root")
 }
 
 func checkHostFilesystemIsNotVisible(ctx context.Context,

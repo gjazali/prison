@@ -1,23 +1,18 @@
 package config
 
 import (
-	"path/filepath"
+	"os"
 	"strings"
 	"testing"
 )
 
-func TestLoadProjectAbsentFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "prison.toml")
-	project, err := LoadProject(path)
+func loadProjectFile(t *testing.T, path string) (*Project, error) {
+	t.Helper()
+	content, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("LoadProject error = %v, want nil", err)
+		t.Fatal(err)
 	}
-	if project.Prison.Inmates != nil || project.Box.CPUs != nil {
-		t.Errorf("LoadProject = %+v, want an empty project", project)
-	}
-	if len(project.Environment) != 0 {
-		t.Errorf("Environment = %v, want empty", project.Environment)
-	}
+	return LoadProject(path, content)
 }
 
 func TestLoadProjectAccepts(t *testing.T) {
@@ -49,7 +44,7 @@ RAILS_ENV = "development"
 PORT = 3000
 DEBUG = true
 `)
-	project, err := LoadProject(path)
+	project, err := loadProjectFile(t, path)
 	if err != nil {
 		t.Fatalf("LoadProject: %v", err)
 	}
@@ -188,11 +183,11 @@ func TestLoadProjectRules(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.rule, func(t *testing.T) {
 			accepted := writeConfigFile(t, "prison.toml", testCase.accept)
-			if _, err := LoadProject(accepted); err != nil {
+			if _, err := loadProjectFile(t, accepted); err != nil {
 				t.Errorf("LoadProject(%q) error = %v, want nil", testCase.accept, err)
 			}
 			refused := writeConfigFile(t, "prison.toml", testCase.reject)
-			project, err := LoadProject(refused)
+			project, err := loadProjectFile(t, refused)
 			requireUnusableShape(t, refused, err)
 			if project != nil {
 				t.Errorf("LoadProject = %+v, want nil", project)
@@ -204,7 +199,7 @@ func TestLoadProjectRules(t *testing.T) {
 func TestLoadProjectEmptyListsAreDeclared(t *testing.T) {
 	path := writeConfigFile(t, "prison.toml",
 		"[prison]\ninmates = []\n\n[box]\nports = []\n")
-	project, err := LoadProject(path)
+	project, err := loadProjectFile(t, path)
 	if err != nil {
 		t.Fatalf("LoadProject: %v", err)
 	}
@@ -219,7 +214,7 @@ func TestLoadProjectEmptyListsAreDeclared(t *testing.T) {
 
 func TestLoadProjectUnknownKeyNamesWhatIsAccepted(t *testing.T) {
 	path := writeConfigFile(t, "prison.toml", "[box]\ncpu = 4\n")
-	_, err := LoadProject(path)
+	_, err := loadProjectFile(t, path)
 	if err == nil {
 		t.Fatalf("LoadProject error = nil, want an error")
 	}
@@ -234,7 +229,7 @@ func TestLoadProjectUnknownKeyNamesWhatIsAccepted(t *testing.T) {
 
 func TestLoadProjectUnknownTableNamesWhatIsAccepted(t *testing.T) {
 	path := writeConfigFile(t, "prison.toml", "[image]\nname = \"debian\"\n")
-	_, err := LoadProject(path)
+	_, err := loadProjectFile(t, path)
 	if err == nil {
 		t.Fatalf("LoadProject error = nil, want an error")
 	}

@@ -394,7 +394,7 @@ func (s *Session) createOrStartBox(
 		Mounts:       s.Mounts(shadowPaths),
 		Ports:        ports,
 		Environment:  s.CreationEnvironment(token, sudo, s.PersistPaths()),
-		Capabilities: []string{"NET_ADMIN"},
+		Capabilities: []string{"NET_ADMIN", "SYS_ADMIN"},
 		Command:      []string{"sleep", "infinity"},
 	}
 	if err := s.Isolator.Create(ctx, spec); err != nil {

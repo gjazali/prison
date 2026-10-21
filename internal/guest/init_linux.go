@@ -5,6 +5,8 @@ package guest
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"os"
@@ -89,6 +91,18 @@ func runContainerInit(arguments []string, gatewayPorts []int,
 		if err := ownByDev(path, dev); err != nil {
 			logger.Printf("persist: %v", err)
 		}
+	}
+	for _, file := range configuration.readOnlyFiles {
+		if err := mountReadOnly(file); err != nil {
+			logger.Printf("%v", err)
+			return 1
+		}
+	}
+	// Later commands must not undo the read-only mounts.
+	if err := unix.Prctl(unix.PR_CAPBSET_DROP, unix.CAP_SYS_ADMIN,
+		0, 0, 0); err != nil {
+		logger.Printf("cannot drop CAP_SYS_ADMIN: %v", err)
+		return 1
 	}
 	if err := installShims(dev); err != nil {
 		logger.Printf("shims: %v", err)
@@ -300,6 +314,30 @@ func installShims(dev devIdentity) error {
 		if err := os.Lchown(link, dev.uid, dev.gid); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// mountReadOnly binds the file over itself because the isolators can mount
+// only directories.
+func mountReadOnly(file string) error {
+	information, err := os.Lstat(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !information.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", file)
+	}
+	if err := unix.Mount(file, file, "", unix.MS_BIND, ""); err != nil {
+		return fmt.Errorf("cannot bind %s: %w", file, err)
+	}
+	err = unix.Mount("", file, "",
+		unix.MS_REMOUNT|unix.MS_BIND|unix.MS_RDONLY, "")
+	if err != nil {
+		return fmt.Errorf("cannot make %s read-only: %w", file, err)
 	}
 	return nil
 }
