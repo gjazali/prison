@@ -7,6 +7,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func newTestStore(t *testing.T, patterns ...string) *Store {
@@ -446,5 +448,82 @@ func TestScanSkipsLineBreakNames(t *testing.T) {
 	}
 	if len(skipped) != 2 {
 		t.Errorf("Scan skipped = %+v, want both names", skipped)
+	}
+}
+
+func TestStoreEntryContentHashesTheCopiedBytes(t *testing.T) {
+	store := newTestStore(t)
+	writeProjectFile(t, store, "a.txt", "before", 0o644)
+	manifest, _, err := store.Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	stale := manifest[0]
+	if _, err := store.Take(""); err != nil {
+		t.Fatalf("Take: %v", err)
+	}
+	writeProjectFile(t, store, "a.txt", "after", 0o644)
+
+	project, err := store.openProject()
+	if err != nil {
+		t.Fatalf("openProject: %v", err)
+	}
+	defer project.Close()
+	if err := store.storeEntryContent(project, &stale); err != nil {
+		t.Fatalf("storeEntryContent: %v", err)
+	}
+	data, err := store.Blob(stale.Digest)
+	if err != nil {
+		t.Fatalf("Blob: %v", err)
+	}
+	if string(data) != "after" {
+		t.Errorf("Blob(%s) = %q, want %q", stale.Digest, data, "after")
+	}
+}
+
+func TestTakeReportsSkippedFiles(t *testing.T) {
+	store := newTestStore(t)
+	writeProjectFile(t, store, "line\nbreak", "x", 0o644)
+	taken, err := store.Take("")
+	if err != nil {
+		t.Fatalf("Take: %v", err)
+	}
+	if len(taken.Skipped) != 1 || taken.Skipped[0].Path != "line\nbreak" {
+		t.Errorf("Take().Skipped = %v, want [line\\nbreak]", taken.Skipped)
+	}
+}
+
+func TestTakeDoesNotOpenFIFO(t *testing.T) {
+	store := newTestStore(t)
+	writeProjectFile(t, store, "pipe", "x", 0o644)
+	manifest, _, err := store.Scan()
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	pipe := filepath.Join(store.Project, "pipe")
+	if err := os.Remove(pipe); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if err := unix.Mkfifo(pipe, 0o644); err != nil {
+		t.Fatalf("Mkfifo: %v", err)
+	}
+
+	taken, err := store.Take("")
+	if err != nil {
+		t.Fatalf("Take: %v", err)
+	}
+	if len(taken.Skipped) != 1 || taken.Skipped[0].Path != "pipe" {
+		t.Errorf("Take().Skipped = %v, want [pipe]", taken.Skipped)
+	}
+	project, err := store.openProject()
+	if err != nil {
+		t.Fatalf("openProject: %v", err)
+	}
+	defer project.Close()
+	if _, err := hashFile(project, "pipe"); err == nil {
+		t.Errorf("hashFile(pipe) = nil error, want an error")
+	}
+	if err := store.storeEntryContent(project, &manifest[0]); err == nil {
+		t.Errorf("storeEntryContent(pipe) = nil error, want an error")
 	}
 }

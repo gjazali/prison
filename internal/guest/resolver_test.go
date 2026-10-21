@@ -112,6 +112,15 @@ func TestResolverRefusesUnknownNamesAndOtherTypes(t *testing.T) {
 	if code != dnsmessage.RCodeNameError {
 		t.Fatalf("ask(nope.test AAAA) = %v, want NXDOMAIN", code)
 	}
+	for _, name := range []string{
+		"a\r\nx.prison.internal", "a b.prison.internal", "a:1.example.test",
+	} {
+		code, addresses = ask(t, r, name, dnsmessage.TypeA)
+		if code != dnsmessage.RCodeNameError || len(addresses) != 0 {
+			t.Fatalf("ask(%q) = %v, %v, want NXDOMAIN and no address", name,
+				code, addresses)
+		}
+	}
 	code, addresses = ask(t, r, "example.test", dnsmessage.TypeAAAA)
 	if code != dnsmessage.RCodeSuccess || len(addresses) != 0 {
 		t.Fatalf("ask(example.test AAAA) = %v, %v, want success and no "+

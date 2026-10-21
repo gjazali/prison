@@ -24,6 +24,11 @@ jobs:
       - id: select
         run: |
           set -euo pipefail
+          if [[ ! "$GITHUB_REF_NAME" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "the tag name has unsafe characters. Skipped"
+            echo 'tags=[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if ! git fetch --force origin prod:refs/remotes/origin/prod; then
             echo "the prod branch does not exist"
             echo 'tags=[]' >> "$GITHUB_OUTPUT"

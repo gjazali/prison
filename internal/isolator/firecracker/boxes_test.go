@@ -150,3 +150,19 @@ func TestFreeTapIndexSkipsUsedTaps(t *testing.T) {
 		t.Errorf("freeTapIndex = %d, %v, want 2", index, err)
 	}
 }
+
+func TestDeleteKeepsBoxWhenUnexportFails(t *testing.T) {
+	driver := New(t.TempDir(), nil)
+	driver.procfs = t.TempDir()
+	driver.uid = -1
+	directory := driver.boxDirectory("prison-demo")
+	writeFile(t, filepath.Join(directory, boxRecordFile),
+		`{"name":"prison-demo","network":"prison","tap_index":2,`+
+			`"mounts":[{"source":"/work","target":"/workspace"}]}`)
+	if err := driver.Delete(t.Context(), "prison-demo"); err == nil {
+		t.Fatal("Delete = nil error, want error")
+	}
+	if _, err := os.Stat(directory); err != nil {
+		t.Errorf("Stat(box directory) = %v, want nil", err)
+	}
+}

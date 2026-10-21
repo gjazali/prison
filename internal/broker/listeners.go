@@ -9,8 +9,12 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/net/netutil"
+
 	"prison/internal/broker/control"
 )
+
+const maxBoxConnections = 512
 
 type tcpListener struct {
 	address   string
@@ -74,6 +78,7 @@ func (broker *Broker) tryBind(entry *tcpListener) bool {
 		entry.lastError = err.Error()
 		return false
 	}
+	listener = netutil.LimitListener(listener, maxBoxConnections)
 	server := &http.Server{
 		Handler:           http.HandlerFunc(broker.serveTCP),
 		ReadHeaderTimeout: readHeaderTimeout,

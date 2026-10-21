@@ -63,8 +63,12 @@ func (s *Session) Up(ctx context.Context) (*UpResult, error) {
 
 	sudo := config.ResolveSudo(s.Overrides, s.Config)
 	s.ensureHostDNS(ctx)
-	firewallIsInPlace := s.ensureHostFirewall(ctx, network)
-	s.warnAboutSudoInBox(sudo, firewallIsInPlace)
+	if err := s.ensureHostFirewall(ctx, network); err != nil {
+		return nil, err
+	}
+	if sudo {
+		ui.Warn("this box has sudo")
+	}
 
 	ports, err := s.ResolvePorts()
 	if err != nil {
@@ -230,35 +234,24 @@ func (s *Session) ensureNetwork(
 	return network, nil
 }
 
-func (s *Session) warnAboutSudoInBox(sudo, firewallIsInPlace bool) {
-	if !sudo {
-		return
-	}
-	if !firewallIsInPlace {
-		ui.Warn("this box has sudo but the host packet filter rules are " +
-			"missing. Run `prison host firewall`")
-		return
-	}
-	ui.Warn("this box has sudo")
-}
-
 func (s *Session) hostFirewallIsMissing(network isolator.NetworkInfo) bool {
 	if network.SubnetV4 == "" {
 		return false
 	}
 	state, err := hostfw.Status(context.Background(),
-		s.hostFirewallSpec(network), s.Root.Path, hostfw.SystemRunner)
+		s.HostFirewallSpec(network), s.Root.Path, hostfw.SystemRunner)
 	if err != nil {
-		return false
+		return true
 	}
 	return state != hostfw.StateInstalled && state != hostfw.StateUnsupported
 }
 
-func (s *Session) hostFirewallSpec(network isolator.NetworkInfo) hostfw.Spec {
+func (environment *Environment) HostFirewallSpec(
+	network isolator.NetworkInfo) hostfw.Spec {
 	return hostfw.Spec{
 		SubnetV4:   network.SubnetV4,
 		SubnetV6:   network.SubnetV6,
-		BrokerPort: s.Overrides.BrokerPort,
+		BrokerPort: environment.Overrides.BrokerPort,
 	}
 }
 

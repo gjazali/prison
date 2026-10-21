@@ -426,12 +426,12 @@ func runSecretList(asJSON bool, prompt passphrasePrompt) error {
 		return err
 	}
 	secrets := opened.Secrets()
+	if asJSON {
+		return printSecretsAsJSON(secrets)
+	}
 	if len(secrets) == 0 {
 		fmt.Println("no secrets. Run `prison secret add <name>`")
 		return nil
-	}
-	if asJSON {
-		return printSecretsAsJSON(secrets)
 	}
 	counts, err := secretGrantCounts(environment.Root)
 	if err != nil {

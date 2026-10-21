@@ -21,7 +21,7 @@ func addHostCommands(root *cobra.Command) {
 	group := &cobra.Command{
 		Use:   "host",
 		Short: "set up this host for prison",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 	}
 	group.AddCommand(
 		newHostFirewallCommand(),
@@ -36,7 +36,7 @@ func newHostFirewallCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "firewall",
 		Short: "block box access to the host",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runHostFirewall(command, removeRules)
 		},
@@ -65,11 +65,7 @@ func runHostFirewall(command *cobra.Command, removeRules bool) error {
 		return fmt.Errorf("cannot read the subnet of the %s network. "+
 			"Run `prison up`", environment.Overrides.Network)
 	}
-	spec := hostfw.Spec{
-		SubnetV4:   network.SubnetV4,
-		SubnetV6:   network.SubnetV6,
-		BrokerPort: environment.Overrides.BrokerPort,
-	}
+	spec := environment.HostFirewallSpec(network)
 	stagingDirectory := environment.Root.Path
 
 	state, err := hostfw.Status(ctx, spec, stagingDirectory, hostfw.SystemRunner)

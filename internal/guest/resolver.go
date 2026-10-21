@@ -56,6 +56,20 @@ func (r *resolver) resolves(name string) bool {
 	return protocol.InZone(name) || r.allowList.Current().HostMatches(name)
 }
 
+// isHostName limits the bytes because the tunnel puts the name into an HTTP
+// request line.
+func isHostName(name string) bool {
+	for _, character := range []byte(name) {
+		valid := character >= 'a' && character <= 'z' ||
+			character >= '0' && character <= '9' ||
+			character == '.' || character == '-' || character == '_'
+		if !valid {
+			return false
+		}
+	}
+	return true
+}
+
 func (r *resolver) answer(packet []byte) ([]byte, bool) {
 	var parser dnsmessage.Parser
 	header, err := parser.Start(packet)
@@ -77,6 +91,8 @@ func (r *resolver) answer(packet []byte) ([]byte, bool) {
 	var address netip.Addr
 	haveAddress := false
 	switch {
+	case !isHostName(name):
+		code = dnsmessage.RCodeNameError
 	case !r.resolves(name):
 		code = dnsmessage.RCodeNameError
 		r.noteRefusal(name)

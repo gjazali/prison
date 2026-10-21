@@ -212,7 +212,7 @@ prison secret grant db-url
 prison up
 ```
 
-Adding this through `prison secrets` doesn't give you any extra security. This
+Adding this through `prison secret` doesn't give you any extra security. This
 is mainly for easier organization of credentials.
 
 ## Configuration
@@ -226,7 +226,7 @@ require = ["stripe", "commit-key"]
 ```
 
 This only defines the secrets that the project will need. Granting the secrets
-still has to be done manually through `prison secrets grant`. This is also
+still has to be done manually through `prison secret grant`. This is also
 another advantage of using `--mode expose` rather than manually declaring the
 environment variables in the box yourself: it'll be a lot easier to notice that
 they're missing.

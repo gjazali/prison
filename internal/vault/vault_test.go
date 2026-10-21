@@ -186,8 +186,8 @@ func TestFileMode(t *testing.T) {
 		t.Fatalf("mode = %o, want 600", info.Mode().Perm())
 	}
 	entries, _ := os.ReadDir(filepath.Dir(path))
-	if len(entries) != 1 {
-		t.Fatalf("ReadDir = %v, want only the vault", entries)
+	if len(entries) != 2 {
+		t.Fatalf("ReadDir = %v, want the vault and its lock", entries)
 	}
 }
 
@@ -382,6 +382,37 @@ func TestConcurrentReadersDuringExternalWrites(t *testing.T) {
 	}
 	if _, err := Open(path, testPassphrase); err != nil {
 		t.Fatalf("Open: %v", err)
+	}
+}
+
+func TestConcurrentWritersKeepAllChanges(t *testing.T) {
+	first, path := newTestVault(t)
+	second, err := Open(path, testPassphrase)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	const writes = 20
+	var group sync.WaitGroup
+	for _, writer := range []struct {
+		vault  *Vault
+		prefix string
+	}{{first, "first-"}, {second, "second-"}} {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			for index := range writes {
+				name := writer.prefix + string(rune('a'+index))
+				if _, err := writer.vault.PutSecret(exposeSecret(name)); err != nil {
+					t.Errorf("PutSecret: %v", err)
+					return
+				}
+			}
+		}()
+	}
+	group.Wait()
+
+	if got := len(first.Secrets()); got != 2*writes {
+		t.Fatalf("len(Secrets) = %d, want %d", got, 2*writes)
 	}
 }
 

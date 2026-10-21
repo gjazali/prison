@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/BurntSushi/toml"
 
@@ -360,6 +361,9 @@ func (m *Manifest) validateEnvironment() error {
 
 func (m *Manifest) validateEgress() error {
 	for _, host := range m.Egress.Hosts {
+		if err := requireLine(host, "egress.hosts"); err != nil {
+			return err
+		}
 		if _, err := policy.ParsePattern(host); err != nil {
 			return fmt.Errorf("egress.hosts: %w", err)
 		}
@@ -502,8 +506,10 @@ func requireLine(value, key string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s must be a non-empty string", key)
 	}
-	if strings.ContainsAny(value, "\r\n\t") {
-		return fmt.Errorf("%s must be a single line without tabs", key)
+	// ANSI escapes can rewrite the approval prompt.
+	if strings.ContainsFunc(value, unicode.IsControl) {
+		return fmt.Errorf(
+			"%s must be a single line without control characters", key)
 	}
 	return nil
 }

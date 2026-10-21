@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
+	"golang.org/x/sys/unix"
 )
 
 const FormatVersion = 2
@@ -197,9 +198,11 @@ func (v *Vault) PutSecret(secret *Secret) (replaced bool, err error) {
 	}
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
-	if err := v.reloadLocked(); err != nil {
+	unlock, err := v.lockAndReload()
+	if err != nil {
 		return false, err
 	}
+	defer unlock()
 	document := copyDocument(v.document)
 	_, replaced = document.Secrets[secret.Name]
 	document.Secrets[secret.Name] = copySecret(secret)
@@ -212,9 +215,11 @@ func (v *Vault) PutSecret(secret *Secret) (replaced bool, err error) {
 func (v *Vault) DeleteSecret(name string) (bool, error) {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
-	if err := v.reloadLocked(); err != nil {
+	unlock, err := v.lockAndReload()
+	if err != nil {
 		return false, err
 	}
+	defer unlock()
 	if _, found := v.document.Secrets[name]; !found {
 		return false, nil
 	}
@@ -254,12 +259,37 @@ func (v *Vault) SetAuthority(host string, authority *Authority) error {
 	}
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
-	if err := v.reloadLocked(); err != nil {
+	unlock, err := v.lockAndReload()
+	if err != nil {
 		return err
 	}
+	defer unlock()
 	document := copyDocument(v.document)
 	document.Authorities[host] = stored
 	return v.writeLocked(document)
+}
+
+// lockAndReload locks a file next to the vault because other processes
+// write the vault too. The reload ignores the size and time.
+func (v *Vault) lockAndReload() (unlock func(), err error) {
+	if v.key == nil {
+		return nil, ErrLocked
+	}
+	file, err := os.OpenFile(v.path+".lock", os.O_RDWR|os.O_CREATE,
+		vaultFileMode)
+	if err != nil {
+		return nil, fmt.Errorf("cannot lock the vault: %w", err)
+	}
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("cannot lock the vault: %w", err)
+	}
+	v.document = nil
+	if err := v.reloadLocked(); err != nil {
+		file.Close()
+		return nil, err
+	}
+	return func() { file.Close() }, nil
 }
 
 func (v *Vault) reloadLocked() error {

@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
 
 	"prison/internal/machine"
 )
+
+const agentReplyLimit = 64 << 10
 
 // dialAgent connects to the guest agent through the vsock socket of
 // Firecracker. The socket takes a `CONNECT <port>` line first.
@@ -54,6 +57,9 @@ func readLine(connection net.Conn) (string, error) {
 		if buffer[0] == '\n' {
 			return string(line), nil
 		}
+		if len(line) >= agentReplyLimit {
+			return "", errors.New("the vsock reply is too long")
+		}
 		line = append(line, buffer[0])
 	}
 }
@@ -71,7 +77,8 @@ func askAgent(ctx context.Context, socket, operation string) error {
 	if _, err := connection.Write(append(request, '\n')); err != nil {
 		return err
 	}
-	line, err := bufio.NewReader(connection).ReadBytes('\n')
+	line, err := bufio.NewReader(
+		io.LimitReader(connection, agentReplyLimit)).ReadBytes('\n')
 	if err != nil {
 		return err
 	}

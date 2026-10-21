@@ -495,7 +495,7 @@ func (driver *Driver) Stop(ctx context.Context, name string) error {
 	}
 	record, found, err := driver.readBoxRecord(name)
 	if err == nil && found {
-		driver.unexportMounts(ctx, record)
+		return driver.unexportMounts(ctx, record)
 	}
 	return nil
 }
@@ -599,19 +599,29 @@ func (driver *Driver) exportMounts(ctx context.Context, record boxRecord,
 	return nil
 }
 
-// unexportMounts ignores errors because the export can be missing.
-func (driver *Driver) unexportMounts(ctx context.Context, record boxRecord) {
+// unexportMounts must succeed before a delete because a new box will reuse
+// the address.
+func (driver *Driver) unexportMounts(ctx context.Context,
+	record boxRecord) error {
+	if len(record.Mounts) == 0 {
+		return nil
+	}
 	network, err := networkFor(record.Network)
 	if err != nil {
-		return
+		return err
 	}
 	client := network.boxAddress(record.TapIndex).String()
 	for _, mount := range record.Mounts {
-		nfsexport.Ask(ctx, nfsexport.SocketPath(driver.uid),
+		err := nfsexport.Ask(ctx, nfsexport.SocketPath(driver.uid),
 			nfsexport.Request{
 				Operation: nfsexport.OperationUnexport,
 				Path:      mount.Source,
 				Client:    client,
 			})
+		if err != nil {
+			return fmt.Errorf("cannot stop sharing %s with box %s: %w",
+				mount.Source, record.Name, err)
+		}
 	}
+	return nil
 }

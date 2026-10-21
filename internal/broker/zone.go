@@ -183,6 +183,13 @@ func (broker *Broker) serveSign(w http.ResponseWriter, r *http.Request, snapshot
 		return
 	}
 	namespace, _ := request["namespace"].(string)
+	if secret.Sign.Namespace != "" && namespace != "" &&
+		namespace != secret.Sign.Namespace {
+		refuse(http.StatusForbidden, fmt.Sprintf(
+			"the %s secret signs only in the %q namespace",
+			secretName, secret.Sign.Namespace))
+		return
+	}
 	if namespace == "" {
 		namespace = secret.Sign.Namespace
 	}

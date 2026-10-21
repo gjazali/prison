@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"prison/internal/broker/control"
-	"prison/internal/isolator"
 	"prison/internal/config"
 	"prison/internal/hostfw"
+	"prison/internal/isolator"
 	"prison/internal/session"
 	"prison/internal/state"
 	"prison/internal/vault"
@@ -30,7 +30,7 @@ func addDoctorCommand(root *cobra.Command) {
 	root.AddCommand(&cobra.Command{
 		Use:   "doctor",
 		Short: "show the state of prison on this host",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runDoctor(command)
 		},
@@ -190,11 +190,7 @@ func (report *doctorReport) reportFirewall(
 		report.detail("read rules", "%s", hostfw.ReadCommand())
 		return
 	}
-	spec := hostfw.Spec{
-		SubnetV4:   network.SubnetV4,
-		SubnetV6:   network.SubnetV6,
-		BrokerPort: report.environment.Overrides.BrokerPort,
-	}
+	spec := report.environment.HostFirewallSpec(network)
 	installed, err := hostfw.Status(
 		ctx, spec, report.environment.Root.Path, hostfw.SystemRunner)
 	if err != nil {

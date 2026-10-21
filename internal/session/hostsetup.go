@@ -11,21 +11,21 @@ import (
 )
 
 func (s *Session) ensureHostFirewall(
-	ctx context.Context, network isolator.NetworkInfo) bool {
+	ctx context.Context, network isolator.NetworkInfo) error {
 	if !s.hostFirewallIsMissing(network) {
-		return true
+		return nil
 	}
-	spec := s.hostFirewallSpec(network)
+	spec := s.HostFirewallSpec(network)
 	ui.Progress(
 		"installing the host packet filter rules")
 	printHostSetupBlock(hostfw.Describe(spec))
 	err := hostfw.Install(
 		ctx, spec, s.Root.Path, hostfw.SystemRunner, os.Stderr)
 	if err != nil {
-		ui.Warn("cannot install the host packet filter rules: %v", err)
-		return false
+		return fmt.Errorf("cannot install the host packet filter rules: %w. "+
+			"Run `prison host firewall`", err)
 	}
-	return true
+	return nil
 }
 
 func printHostSetupBlock(lines []string) {

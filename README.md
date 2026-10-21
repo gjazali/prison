@@ -110,7 +110,7 @@ hosts = [
 [secrets]
 # These define the credentials in the secrets manager that is needed by the box
 require = [
-  "umls-api-key" # The name is defined through `prison secrets`
+  "umls-api-key" # The name is defined through `prison secret`
 ]
 
 [environment]

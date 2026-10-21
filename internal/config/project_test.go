@@ -125,6 +125,21 @@ func TestLoadProjectRules(t *testing.T) {
 			"[box]\nshadow = [\".git/hooks\"]\n",
 		},
 		{
+			"shadow path is clean",
+			"[box]\nshadow = [\"a/b\"]\n",
+			"[box]\nshadow = [\"./.git\"]\n",
+		},
+		{
+			"shadow path is not the project",
+			"[box]\nshadow = [\"a\"]\n",
+			"[box]\nshadow = [\".\"]\n",
+		},
+		{
+			"shadow directories are distinct",
+			"[box]\nshadow = [\"a/b\", \"a/c\"]\n",
+			"[box]\nshadow = [\"a/b\", \"a_b\"]\n",
+		},
+		{
 			"setup commands are single lines",
 			"[setup]\ncommands = [\"npm ci\"]\n",
 			"[setup]\ncommands = [\"npm ci\\nnpm test\"]\n",

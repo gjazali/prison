@@ -220,15 +220,29 @@ func openCheckpointSession() (*session.Session, *checkpoint.Store, error) {
 	return current, store, nil
 }
 
-func runCheckpointTake(label string) error {
+func openLockedCheckpointStore() (*checkpoint.Store, func(), error) {
 	_, store, err := openCheckpointSession()
+	if err != nil {
+		return nil, nil, err
+	}
+	unlock, err := store.Lock()
+	if err != nil {
+		return nil, nil, err
+	}
+	return store, unlock, nil
+}
+
+func runCheckpointTake(label string) error {
+	store, unlock, err := openLockedCheckpointStore()
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	recorded, err := store.Take(label)
 	if err != nil {
 		return err
 	}
+	reportCheckpointSkips(recorded.Skipped)
 	fmt.Printf("checkpoint %s recorded, %d entries\n",
 		recorded.ID, recorded.Entries)
 	return nil
@@ -374,10 +388,11 @@ func reportCheckpointSkips(skipped []checkpoint.Skipped) {
 }
 
 func runCheckpointRestore(wanted string) error {
-	_, store, err := openCheckpointSession()
+	store, unlock, err := openLockedCheckpointStore()
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	identifier, err := store.Resolve(wanted)
 	if err != nil {
 		return err
@@ -395,10 +410,11 @@ func runCheckpointRestore(wanted string) error {
 }
 
 func runCheckpointStep(direction int) error {
-	_, store, err := openCheckpointSession()
+	store, unlock, err := openLockedCheckpointStore()
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	identifier, err := store.Step(direction)
 	if err != nil {
 		return err
@@ -418,10 +434,11 @@ func printCheckpointRestore(identifier string,
 }
 
 func runCheckpointMerge(wanted, base string, dryRun bool) error {
-	_, store, err := openCheckpointSession()
+	store, unlock, err := openLockedCheckpointStore()
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	result, err := store.Merge(wanted, checkpoint.MergeOptions{
 		BaseID: base,
 		DryRun: dryRun,
@@ -441,10 +458,11 @@ func runCheckpointMerge(wanted, base string, dryRun bool) error {
 
 func runCheckpointPick(
 	wanted, from string, paths []string, dryRun bool) error {
-	_, store, err := openCheckpointSession()
+	store, unlock, err := openLockedCheckpointStore()
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	limited := make([]string, 0, len(paths))
 	for _, path := range paths {
 		relative, err := store.RelativePath(path)
@@ -472,10 +490,11 @@ func runCheckpointPick(
 }
 
 func runCheckpointRemove(wanted string) error {
-	_, store, err := openCheckpointSession()
+	store, unlock, err := openLockedCheckpointStore()
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	identifier, err := store.Resolve(wanted)
 	if err != nil {
 		return err
@@ -488,10 +507,11 @@ func runCheckpointRemove(wanted string) error {
 }
 
 func runCheckpointPrune() error {
-	_, store, err := openCheckpointSession()
+	store, unlock, err := openLockedCheckpointStore()
 	if err != nil {
 		return err
 	}
+	defer unlock()
 	removed, reclaimed, err := store.Prune()
 	if err != nil {
 		return err

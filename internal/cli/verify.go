@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"prison/internal/hostfw"
 	"prison/internal/session"
 	"prison/internal/ui"
 )
@@ -55,6 +56,7 @@ func runVerify(command *cobra.Command) error {
 	checkHostFilesystemIsNotVisible(ctx, current, verification)
 	checkDirectEgressIsRefused(ctx, current, verification)
 	checkBrokerIsReachable(ctx, current, verification)
+	checkHostFirewallIsInstalled(ctx, current, verification)
 	checkFirewallRulesAreOutOfReach(ctx, current, verification)
 	checkPublishedPortsAreLoopbackOnly(current, verification)
 	checkShadowedDirectoriesAreIsolated(ctx, current, verification)
@@ -262,6 +264,33 @@ func checkBrokerIsReachable(ctx context.Context,
 		return
 	}
 	verification.pass("broker", "the guest can reach it")
+}
+
+func checkHostFirewallIsInstalled(ctx context.Context,
+	current *session.Session, verification *isolationVerification) {
+	network, err := current.Isolator.Network(ctx, current.Overrides.Network)
+	if err != nil {
+		verification.fail("host firewall",
+			"cannot read the box network: %v", err)
+		return
+	}
+	spec := current.HostFirewallSpec(network)
+	installed, err := hostfw.Status(
+		ctx, spec, current.Root.Path, hostfw.SystemRunner)
+	switch {
+	case err != nil:
+		verification.fail("host firewall",
+			"cannot read the firewall: %v", err)
+	case installed == hostfw.StateInstalled:
+		verification.pass("host firewall",
+			"a box can reach the host only on %s", portListText(hostfw.OpenPorts(spec)))
+	case installed == hostfw.StateUnsupported:
+		verification.skip("host firewall",
+			"this host does not support the firewall rules")
+	default:
+		verification.fail("host firewall",
+			"the rules are %s. Run `prison host firewall`", installed)
+	}
 }
 
 func checkFirewallRulesAreOutOfReach(ctx context.Context,

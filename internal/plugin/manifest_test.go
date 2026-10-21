@@ -85,6 +85,8 @@ func TestParseManifestRefusals(t *testing.T) {
 		{"persist climbs", "[persist]\npaths = [\"/home/dev/../etc\"]\n", "must not contain"},
 		{"reserved environment", "[environment]\nPRISON_TOKEN = \"x\"\n", "PRISON_TOKEN"},
 		{"list environment", "[environment]\nA = [1, 2]\n", "environment.A"},
+		{"control character", "unsafe = \"a\\u001b[2Jb\"\n", "command.unsafe"},
+		{"control egress", "[egress]\nhosts = [\"a\\u001b.example\"]\n", "egress.hosts"},
 		{"bad egress", "[egress]\nhosts = [\"https://api.example\"]\n", "egress.hosts"},
 		{"copy escapes", "[persist]\npaths = [\"/home/dev/.codex\"]\n[host]\ncopy = [\"../../etc/passwd\"]\n", "host.copy"},
 		{"root without persist", "[host]\ncopy = [\"a\"]\n", "host.root"},

@@ -55,7 +55,7 @@ func (r *Registry) List() ([]*Inmate, error) {
 		if shipped[inmate.Name] {
 			inmate.Problem = fmt.Errorf(
 				"%q is taken by a bundled inmate, so %s is ignored. "+
-					"Run `prison inmate rm %s`",
+					"Run `prison inmate remove %s`",
 				inmate.Name, inmate.Dir, inmate.Name)
 		}
 		inmates = append(inmates, inmate)

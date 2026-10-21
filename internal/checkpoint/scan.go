@@ -4,11 +4,13 @@ import (
 	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"strings"
+	"syscall"
 )
 
 const maximumTotalBytes = 2 * 1024 * 1024 * 1024
@@ -144,8 +146,28 @@ func (state *scanState) skip(relativePath, reason string) {
 		Skipped{Path: relativePath, Reason: reason})
 }
 
+// openRegularFile does not block because the agent can replace a file with
+// a FIFO.
+func openRegularFile(project *os.Root, relativePath string) (*os.File, error) {
+	handle, err := project.OpenFile(
+		relativePath, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	information, err := handle.Stat()
+	if err != nil {
+		handle.Close()
+		return nil, err
+	}
+	if !information.Mode().IsRegular() {
+		handle.Close()
+		return nil, errors.New("not a regular file")
+	}
+	return handle, nil
+}
+
 func hashFile(project *os.Root, relativePath string) (string, error) {
-	handle, err := project.Open(relativePath)
+	handle, err := openRegularFile(project, relativePath)
 	if err != nil {
 		return "", err
 	}

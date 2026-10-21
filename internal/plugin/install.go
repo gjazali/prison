@@ -219,7 +219,7 @@ func clonePlugin(ctx context.Context, url, ref, destination string) error {
 	if ref != "" {
 		arguments = append(arguments, "--branch", ref)
 	}
-	arguments = append(arguments, url, destination)
+	arguments = append(arguments, "--", url, destination)
 	command := exec.CommandContext(ctx, "git", arguments...)
 	output, err := command.CombinedOutput()
 	if err != nil {
@@ -326,7 +326,7 @@ func approvalDescription(manifest *Manifest, fsys fs.FS) (string, error) {
 	}
 	fmt.Fprintf(text, "\nfiles\n")
 	for _, name := range files {
-		fmt.Fprintf(text, "  %s\n", name)
+		fmt.Fprintf(text, "  %q\n", name)
 	}
 	fmt.Fprintf(text, "\nThe Dockerfile is built as root in the box. "+
 		"No inmate code runs on the host.\n")

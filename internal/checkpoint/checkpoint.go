@@ -89,6 +89,7 @@ func (document metadataDocument) metadata() Metadata {
 type Checkpoint struct {
 	ID string
 	Metadata
+	Skipped []Skipped
 }
 
 type ChangedEntry struct {

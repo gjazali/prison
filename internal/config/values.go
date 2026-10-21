@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -61,17 +63,23 @@ func validatePort(description string, port int) error {
 	return nil
 }
 
-func validateRelativePath(description, path string) (string, error) {
-	if err := requireText(description, path); err != nil {
+func validateRelativePath(description, relativePath string) (string, error) {
+	if err := requireText(description, relativePath); err != nil {
 		return "", err
 	}
-	if strings.HasPrefix(path, "/") {
+	if strings.HasPrefix(relativePath, "/") {
 		return "", fmt.Errorf("%s must be a relative path", description)
 	}
-	for _, segment := range strings.Split(path, "/") {
+	for _, segment := range strings.Split(relativePath, "/") {
 		if segment == ".." {
 			return "", fmt.Errorf(`%s must not contain ".."`, description)
 		}
 	}
-	return strings.Trim(path, "/"), nil
+	trimmed := strings.TrimRight(relativePath, "/")
+	if trimmed == "." || path.Clean(trimmed) != trimmed ||
+		!filepath.IsLocal(trimmed) {
+		return "", fmt.Errorf("%s %q is not a clean path in the project",
+			description, relativePath)
+	}
+	return trimmed, nil
 }

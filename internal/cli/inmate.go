@@ -118,7 +118,7 @@ func newInmateTrustCommand() *cobra.Command {
 
 func addInmateRefFlag(command *cobra.Command, target *string) {
 	command.Flags().StringVar(target, "ref", "",
-		"branch, tag, or commit to fetch")
+		"branch or tag to fetch")
 }
 
 func addInmateYesFlag(command *cobra.Command, target *bool) {

@@ -1,6 +1,8 @@
 package checkpoint
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -35,6 +39,19 @@ func Open(dir, projectDirectory string, ignore *Ignore) (*Store, error) {
 		}
 	}
 	return store, nil
+}
+
+func (store *Store) Lock() (func(), error) {
+	path := filepath.Join(store.Dir, "lock")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open %s: %w", path, err)
+	}
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX); err != nil {
+		file.Close()
+		return nil, fmt.Errorf("cannot lock %s: %w", path, err)
+	}
+	return func() { file.Close() }, nil
 }
 
 func (store *Store) openProject() (*os.Root, error) {
@@ -202,7 +219,7 @@ func (store *Store) Metadata(identifier string) (Metadata, error) {
 }
 
 func (store *Store) Take(label string) (Checkpoint, error) {
-	entries, _, err := store.Scan()
+	entries, skipped, err := store.Scan()
 	if err != nil {
 		return Checkpoint{}, err
 	}
@@ -211,8 +228,9 @@ func (store *Store) Take(label string) (Checkpoint, error) {
 		return Checkpoint{}, err
 	}
 	defer project.Close()
-	for _, entry := range entries {
-		if err := store.storeEntryContent(project, entry); err != nil {
+	for index := range entries {
+		if err := store.storeEntryContent(
+			project, &entries[index]); err != nil {
 			return Checkpoint{}, err
 		}
 	}
@@ -252,56 +270,72 @@ func (store *Store) Take(label string) (Checkpoint, error) {
 	if err := store.SetHead(identifier); err != nil {
 		return Checkpoint{}, err
 	}
-	return Checkpoint{ID: identifier, Metadata: metadata}, nil
+	return Checkpoint{
+		ID: identifier, Metadata: metadata, Skipped: skipped}, nil
 }
 
-func (store *Store) storeEntryContent(project *os.Root, entry Entry) error {
-	if entry.Kind == KindDirectory {
+// storeEntryContent hashes the bytes it copies because the file can change
+// after the scan.
+func (store *Store) storeEntryContent(project *os.Root, entry *Entry) error {
+	var content io.Reader
+	switch entry.Kind {
+	case KindDirectory:
 		return nil
-	}
-	destination := store.BlobPath(entry.Digest)
-	if _, err := os.Lstat(destination); err == nil {
-		return nil
-	}
-	if entry.Kind == KindLink {
+	case KindLink:
 		target, err := project.Readlink(entry.Path)
 		if err != nil {
 			return fmt.Errorf("cannot read the link %s: %w", entry.Path, err)
 		}
-		return store.writeObject(destination, strings.NewReader(target))
+		content = strings.NewReader(target)
+	default:
+		source, err := openRegularFile(project, entry.Path)
+		if err != nil {
+			return fmt.Errorf("cannot read %s: %w", entry.Path, err)
+		}
+		defer source.Close()
+		content = source
 	}
-	source, err := project.Open(entry.Path)
+	digest, err := store.writeObject(content)
 	if err != nil {
-		return fmt.Errorf("cannot read %s: %w", entry.Path, err)
+		return err
 	}
-	defer source.Close()
-	return store.writeObject(destination, source)
+	entry.Digest = digest
+	return nil
 }
 
-func (store *Store) writeObject(destination string, content io.Reader) error {
-	shard := filepath.Dir(destination)
-	if err := os.MkdirAll(shard, 0o755); err != nil {
-		return fmt.Errorf("cannot create the object store: %w", err)
-	}
-	temporary, err := os.CreateTemp(shard, "partial-*")
+func (store *Store) writeObject(content io.Reader) (string, error) {
+	temporary, err := os.CreateTemp(
+		filepath.Join(store.Dir, objectsDirectory), "partial-*")
 	if err != nil {
-		return fmt.Errorf("cannot write to the object store: %w", err)
+		return "", fmt.Errorf("cannot write to the object store: %w", err)
 	}
 	defer os.Remove(temporary.Name())
-	if _, err := io.Copy(temporary, content); err != nil {
-		temporary.Close()
-		return fmt.Errorf("cannot write to the object store: %w", err)
+	hash := sha256.New()
+	_, err = io.Copy(io.MultiWriter(temporary, hash), content)
+	if err == nil {
+		err = temporary.Sync()
 	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("cannot write to the object store: %w", err)
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return "", fmt.Errorf("cannot write to the object store: %w", err)
+	}
+	digest := hex.EncodeToString(hash.Sum(nil))
+	destination := store.BlobPath(digest)
+	if _, err := os.Lstat(destination); err == nil {
+		return digest, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return "", fmt.Errorf("cannot create the object store: %w", err)
 	}
 	if err := os.Chmod(temporary.Name(), 0o644); err != nil {
-		return fmt.Errorf("cannot write to the object store: %w", err)
+		return "", fmt.Errorf("cannot write to the object store: %w", err)
 	}
 	if err := os.Rename(temporary.Name(), destination); err != nil {
-		return fmt.Errorf("cannot write to the object store: %w", err)
+		return "", fmt.Errorf("cannot write to the object store: %w", err)
 	}
-	return nil
+	return digest, nil
 }
 
 // Remove leaves the objects of the checkpoint for `Prune`.
@@ -355,6 +389,7 @@ func (store *Store) Prune() (int, int64, error) {
 	var freed int64
 	for _, shard := range shards {
 		if !shard.IsDir() {
+			os.Remove(filepath.Join(root, shard.Name()))
 			continue
 		}
 		objects, err := os.ReadDir(filepath.Join(root, shard.Name()))
@@ -387,11 +422,14 @@ func writeFileAtomically(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	defer os.Remove(temporary.Name())
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return err
+	_, err = temporary.Write(data)
+	if err == nil {
+		err = temporary.Sync()
 	}
-	if err := temporary.Close(); err != nil {
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
 		return err
 	}
 	if err := os.Chmod(temporary.Name(), mode); err != nil {

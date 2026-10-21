@@ -143,6 +143,8 @@ func (project *Project) validateBox() error {
 			}
 		}
 	}
+	// `ShadowDir` maps "/" to "_", so "a/b" and "a_b" will share a directory.
+	shadowByFlattenedName := map[string]string{}
 	for index, path := range box.Shadow {
 		cleaned, err := validateRelativePath("every entry in box.shadow", path)
 		if err != nil {
@@ -151,6 +153,13 @@ func (project *Project) validateBox() error {
 		if cleaned == ".git" || strings.HasPrefix(cleaned, ".git/") {
 			return fmt.Errorf("box.shadow cannot contain .git")
 		}
+		flattened := strings.ReplaceAll(cleaned, "/", "_")
+		if other, found := shadowByFlattenedName[flattened]; found {
+			return fmt.Errorf("box.shadow entries %q and %q "+
+				"use the same shadow directory. Remove or rename one",
+				other, cleaned)
+		}
+		shadowByFlattenedName[flattened] = cleaned
 		box.Shadow[index] = cleaned
 	}
 	return nil

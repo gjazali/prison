@@ -428,6 +428,13 @@ func TestKeysWithoutAgent(t *testing.T) {
 	if message := errorMessage(t, response); !strings.Contains(message, "SSH_AUTH_SOCK") {
 		t.Fatalf("message = %q", message)
 	}
+	response, err = api.Post("http://x"+protocol.PathSign, "application/json",
+		strings.NewReader(`{"secret":"commit","data":"aGk=","namespace":"file"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectRefusal(t, response, http.StatusForbidden,
+		`the commit secret signs only in the "git" namespace`)
 	response, _ = api.Get("http://x/v1/nothing")
 	expectRefusal(t, response, http.StatusNotFound, unknownPathMessage)
 }

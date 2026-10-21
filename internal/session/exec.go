@@ -19,6 +19,19 @@ const readinessTimeout = 60 * time.Second
 
 const readinessInterval = time.Second
 
+const guestOutputLimit = 1 << 20
+
+// cappedBuffer reports a full write so that the command will not fail.
+type cappedBuffer struct {
+	bytes.Buffer
+}
+
+func (buffer *cappedBuffer) Write(data []byte) (int, error) {
+	room := max(guestOutputLimit-buffer.Len(), 0)
+	buffer.Buffer.Write(data[:min(len(data), room)])
+	return len(data), nil
+}
+
 type ExecRequest struct {
 	Command     []string
 	TTY         bool
@@ -51,7 +64,7 @@ func (s *Session) Exec(ctx context.Context, request ExecRequest) (int, error) {
 }
 
 func (s *Session) RunQuiet(ctx context.Context, command ...string) (int, string, error) {
-	output := &bytes.Buffer{}
+	output := &cappedBuffer{}
 	status, err := s.Exec(ctx, ExecRequest{
 		Command: command,
 		Stdout:  output,
@@ -92,7 +105,7 @@ func (s *Session) Probe(ctx context.Context, commands []string,
 	if term != "" {
 		arguments = append(arguments, "--term", term)
 	}
-	output := &bytes.Buffer{}
+	output := &cappedBuffer{}
 	status, err := s.Exec(ctx, ExecRequest{Command: arguments, Stdout: output})
 	if err != nil {
 		return result, fmt.Errorf("cannot probe the box: %w", err)
