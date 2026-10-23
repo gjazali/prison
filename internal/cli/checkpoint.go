@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -518,30 +517,4 @@ func runCheckpointPrune() error {
 	}
 	fmt.Printf("removed %d stored object(s), %dKB\n", removed, reclaimed/1024)
 	return nil
-}
-
-func checkpointDriftReminder(current *session.Session) {
-	if current == nil || current.Project == nil {
-		return
-	}
-	snapshots := filepath.Join(current.Project.CheckpointsDir(), "snapshots")
-	if information, err := os.Stat(snapshots); err != nil ||
-		!information.IsDir() {
-		return
-	}
-	store, err := openCheckpointStore(current)
-	if err != nil {
-		return
-	}
-	identifier, err := store.DiffTarget("")
-	if err != nil {
-		return
-	}
-	changes, _, _, _, err := store.Diff(identifier)
-	if err != nil || changes.Empty() {
-		return
-	}
-	fmt.Fprintf(os.Stderr,
-		"%d path(s) changed since checkpoint %s. "+
-			"Run `prison checkpoint diff`\n", changes.Count(), identifier)
 }

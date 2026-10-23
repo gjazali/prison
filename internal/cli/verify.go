@@ -157,7 +157,7 @@ func checkWorkspaceIsTheProject(ctx context.Context,
 
 func checkGitHooksAreReadOnly(ctx context.Context,
 	current *session.Session, verification *isolationVerification) {
-	if !directoryExistsOnHost(filepath.Join(current.Directory, ".git", "hooks")) {
+	if !directoryIsPresent(filepath.Join(current.Directory, ".git", "hooks")) {
 		verification.skip("git hooks",
 			"this project has no git hooks")
 		return
@@ -187,7 +187,7 @@ func checkGitHooksAreReadOnly(ctx context.Context,
 
 func checkGitConfigIsReadOnly(ctx context.Context,
 	current *session.Session, verification *isolationVerification) {
-	if !directoryExistsOnHost(filepath.Join(current.Directory, ".git")) {
+	if !directoryIsPresent(filepath.Join(current.Directory, ".git")) {
 		verification.skip("git config", "this project has no git directory")
 		return
 	}
@@ -442,9 +442,4 @@ func firstLineOfOutput(output string) string {
 		}
 	}
 	return "no output"
-}
-
-func directoryExistsOnHost(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }

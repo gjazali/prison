@@ -1,6 +1,9 @@
 package textdiff
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Hunk offsets are zero-based.
 type Hunk struct {
@@ -61,7 +64,11 @@ func Hunks(edits []Edit, context int) []Hunk {
 	return hunks
 }
 
-func Unified(a, b []string, aName, bName string, context int) []string {
+const noNewlineMarker = `\ No newline at end of file`
+
+// Unified expects lines that keep their newlines when `terminated` is true.
+func Unified(a, b []string, aName, bName string, context int,
+	terminated bool) []string {
 	hunks := Hunks(Diff(a, b), context)
 	if len(hunks) == 0 {
 		return nil
@@ -72,7 +79,11 @@ func Unified(a, b []string, aName, bName string, context int) []string {
 			hunkRange(hunk.AStart, hunk.ACount),
 			hunkRange(hunk.BStart, hunk.BCount)))
 		for _, edit := range hunk.Lines {
-			lines = append(lines, editPrefix(edit.Op)+edit.Line)
+			line, hasNewline := strings.CutSuffix(edit.Line, "\n")
+			lines = append(lines, editPrefix(edit.Op)+line)
+			if terminated && !hasNewline {
+				lines = append(lines, noNewlineMarker)
+			}
 		}
 	}
 	return lines

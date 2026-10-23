@@ -71,7 +71,6 @@ type Result struct {
 	InputTokens  *int
 	OutputTokens *int
 	Bytes        int64
-	Duration     time.Duration
 	Error        string
 	ClientGone   bool
 }
@@ -152,7 +151,6 @@ func NewUpstreamProxy(transport http.RoundTripper, upstream Upstream,
 
 func (proxy *upstreamProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	exchange := &exchange{
-		started: time.Now(),
 		preview: previewCapture{limit: ModelPreviewBytes},
 		onDone:  proxy.onDone,
 	}
@@ -198,7 +196,6 @@ func (proxy *upstreamProxy) rewrite(request *httputil.ProxyRequest,
 }
 
 type exchange struct {
-	started time.Time
 	preview previewCapture
 	usage   UsageScanner
 	bytes   int64
@@ -215,7 +212,6 @@ func (exchange *exchange) finish(status int, errorText string,
 			InputTokens:  exchange.usage.InputTokens,
 			OutputTokens: exchange.usage.OutputTokens,
 			Bytes:        exchange.bytes,
-			Duration:     time.Since(exchange.started),
 			Error:        errorText,
 			ClientGone:   clientGone,
 		})

@@ -3,7 +3,6 @@ package broker
 import (
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/netip"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"prison/internal/broker/control"
+	"prison/internal/broker/relay"
 )
 
 const forwardDialTimeout = 5 * time.Second
@@ -89,29 +89,17 @@ func (table *forwardTable) serve(listener net.Listener, destination string) {
 			table.logf("forward %s: %v", destination, err)
 			return
 		}
-		go table.relay(client, destination)
+		go table.forward(client, destination)
 	}
 }
 
-func (table *forwardTable) relay(client net.Conn, destination string) {
+func (table *forwardTable) forward(client net.Conn, destination string) {
 	defer client.Close()
 	box, err := net.DialTimeout("tcp", destination, forwardDialTimeout)
 	if err != nil {
 		return
 	}
-	defer box.Close()
-	done := make(chan struct{}, 2)
-	copyHalf := func(to, from net.Conn) {
-		io.Copy(to, from)
-		if half, isTCP := to.(*net.TCPConn); isTCP {
-			half.CloseWrite()
-		}
-		done <- struct{}{}
-	}
-	go copyHalf(box, client)
-	go copyHalf(client, box)
-	<-done
-	<-done
+	relay.Splice(client, box, tunnelIdleTimeout)
 }
 
 func (table *forwardTable) logf(format string, arguments ...any) {

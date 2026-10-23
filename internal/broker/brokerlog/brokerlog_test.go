@@ -177,8 +177,6 @@ func TestReadFilters(t *testing.T) {
 		{name: "by inmate", filter: Filter{Inmate: "claude"}, want: 1},
 		{name: "kind and project", want: 1,
 			filter: Filter{Kind: KindSign, Project: "beta"}},
-		{name: "since", want: 2,
-			filter: Filter{Since: baseTime.Add(3 * time.Second)}},
 		{name: "no match", filter: Filter{Project: "gamma"}, want: 0},
 	}
 	for _, testCase := range cases {

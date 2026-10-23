@@ -204,23 +204,3 @@ func recordTrustedConfiguration(
 	ui.Progress("trusted prison.toml. Run `prison up` to apply it")
 	return nil
 }
-
-func warnAboutUntrustedConfiguration(currentSession *session.Session) {
-	if !currentSession.ConfigPresent || currentSession.ConfigTrusted {
-		return
-	}
-	if wasTrustedBefore(currentSession) {
-		ui.Warn("prison.toml changed after it was trusted. Run `prison trust`")
-		return
-	}
-	ui.Warn("prison.toml is not trusted. Run `prison trust`")
-}
-
-func wasTrustedBefore(currentSession *session.Session) bool {
-	if currentSession.Record != nil &&
-		currentSession.Record.TrustedConfigSHA256 != "" {
-		return true
-	}
-	_, err := os.Stat(currentSession.Project.TrustedConfigCopy())
-	return err == nil
-}

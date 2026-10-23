@@ -493,7 +493,7 @@ func (s *Session) probeInmateCommands(
 ) (ProbeResult, error) {
 	var commands []string
 	for _, inmate := range s.Inmates {
-		if name := firstWord(inmate.Command.Run); name != "" {
+		if name := FirstWord(inmate.Command.Run); name != "" {
 			commands = append(commands, name)
 		}
 	}
@@ -503,7 +503,7 @@ func (s *Session) probeInmateCommands(
 	return s.Probe(ctx, commands, "")
 }
 
-func firstWord(line string) string {
+func FirstWord(line string) string {
 	fields := strings.Fields(line)
 	if len(fields) == 0 {
 		return ""

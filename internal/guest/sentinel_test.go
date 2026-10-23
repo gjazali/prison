@@ -39,29 +39,6 @@ func TestSentinelAllocatorCrossesOctetBoundary(t *testing.T) {
 	}
 }
 
-func TestSentinelAllocatorReusesReleasedAddresses(t *testing.T) {
-	allocator := newSentinelAllocator()
-	first, _ := allocator.Allocate("a.test")
-	allocator.Allocate("b.test")
-	if !allocator.Release("a.test") {
-		t.Fatal("Release(a.test) = false, want true")
-	}
-	if allocator.Release("a.test") {
-		t.Fatal("Release(a.test) again = true, want false")
-	}
-	if _, ok := allocator.Lookup(first); ok {
-		t.Fatal("Lookup(released) = found, want not found")
-	}
-	reused, _ := allocator.Allocate("c.test")
-	if reused != first {
-		t.Fatalf("Allocate(c.test) = %v, want %v", reused, first)
-	}
-	next, _ := allocator.Allocate("d.test")
-	if next != netip.MustParseAddr("127.99.0.3") {
-		t.Fatalf("Allocate(d.test) = %v, want 127.99.0.3", next)
-	}
-}
-
 func TestSentinelAllocatorExhausts(t *testing.T) {
 	allocator := newSentinelAllocator()
 	allocator.nextOffset = 65533

@@ -2,105 +2,64 @@ package applecontainer
 
 import (
 	"context"
-	"os"
-	"path/filepath"
+	"fmt"
+	"net"
 	"testing"
 )
 
-func TestNetmaskPrefixLength(t *testing.T) {
-	cases := []struct {
-		netmask string
-		want    int
-		fails   bool
-	}{
-		{netmask: "0xffffff00", want: 24},
-		{netmask: "0xff000000", want: 8},
-		{netmask: "0xfffff000", want: 20},
-		{netmask: "0xffffffff", want: 32},
-		{netmask: "0x00000000", want: 0},
-		{netmask: "ffffff00", want: 24},
-		{netmask: "0xnope", fails: true},
-	}
-	for _, testCase := range cases {
-		got, err := netmaskPrefixLength(testCase.netmask)
-		if testCase.fails {
-			if err == nil {
-				t.Errorf("netmaskPrefixLength(%s) = %d, want error",
-					testCase.netmask, got)
-			}
-			continue
-		}
+func fakeHostInterfaces(t *testing.T) {
+	t.Helper()
+	parse := func(cidr string) net.Addr {
+		ip, network, err := net.ParseCIDR(cidr)
 		if err != nil {
-			t.Errorf("%s: %v", testCase.netmask, err)
-			continue
+			t.Fatal(err)
 		}
-		if got != testCase.want {
-			t.Errorf("netmaskPrefixLength(%s) = %d, want %d",
-				testCase.netmask, got, testCase.want)
-		}
+		network.IP = ip
+		return network
+	}
+	original := hostInterfaceAddresses
+	t.Cleanup(func() { hostInterfaceAddresses = original })
+	hostInterfaceAddresses = func() (map[string][]net.Addr, error) {
+		return map[string][]net.Addr{
+			"lo0": {parse("127.0.0.1/8"), parse("::1/128")},
+			"en0": {parse("fe80::1/64"), parse("10.0.0.2/20")},
+			"bridge101": {
+				parse("192.168.128.1/24"), parse("fd53::1/64"),
+			},
+		}, nil
 	}
 }
 
-func TestNetworkAddressFor(t *testing.T) {
+func TestRouteCarrying(t *testing.T) {
+	fakeHostInterfaces(t)
+	addresses, _ := hostInterfaceAddresses()
 	cases := []struct {
-		address string
-		prefix  int
+		gateway string
 		want    string
-		fails   bool
 	}{
-		{address: "192.168.128.1", prefix: 24, want: "192.168.128.0"},
-		{address: "192.168.64.1", prefix: 24, want: "192.168.64.0"},
-		{address: "10.1.2.3", prefix: 8, want: "10.0.0.0"},
-		{address: "10.67.53.2", prefix: 20, want: "10.67.48.0"},
-		{address: "192.168.128.130", prefix: 25, want: "192.168.128.128"},
-		{address: "192.168.128.1", prefix: 32, want: "192.168.128.1"},
-		{address: "192.168.128.1", prefix: 0, want: "0.0.0.0"},
-		{address: "192.168.128", prefix: 24, fails: true},
-		{address: "192.168.128.1", prefix: 33, fails: true},
-		{address: "192.168.128.x", prefix: 24, fails: true},
+		{gateway: "192.168.128.1", want: "192.168.128.0/24 bridge101"},
+		{gateway: "10.0.0.2", want: "10.0.0.0/20 en0"},
+		{gateway: "127.0.0.1", want: "127.0.0.0/8 lo0"},
+		{gateway: "10.9.9.9", want: ""},
+		{gateway: "fd53::1", want: ""},
+		{gateway: "nope", want: ""},
 	}
 	for _, testCase := range cases {
-		got, err := networkAddressFor(testCase.address, testCase.prefix)
-		if testCase.fails {
-			if err == nil {
-				t.Errorf("networkAddressFor(%s, %d) = %s, want error",
-					testCase.address, testCase.prefix, got)
-			}
-			continue
-		}
-		if err != nil {
-			t.Errorf("%s/%d: %v",
-				testCase.address, testCase.prefix, err)
-			continue
+		got := ""
+		if route := routeCarrying(testCase.gateway, addresses); route != nil {
+			got = fmt.Sprintf("%s/%d %s",
+				route.Network, route.Prefix, route.Interface)
 		}
 		if got != testCase.want {
-			t.Errorf("networkAddressFor(%s, %d) = %s, want %s",
-				testCase.address,
-				testCase.prefix, got, testCase.want)
+			t.Errorf("routeCarrying(%s) = %q, want %q",
+				testCase.gateway, got, testCase.want)
 		}
-	}
-}
-
-func TestInterfaceCarrying(t *testing.T) {
-	output := readFixture(t, "ifconfig.txt")
-	name, netmask := interfaceCarrying(output, "192.168.128.1")
-	if name != "bridge101" || netmask != "0xffffff00" {
-		t.Fatalf("interfaceCarrying = %q, %q, want bridge101, 0xffffff00",
-			name, netmask)
-	}
-	name, netmask = interfaceCarrying(output, "127.0.0.1")
-	if name != "lo0" || netmask != "0xff000000" {
-		t.Errorf("interfaceCarrying = %q, %q, want lo0, 0xff000000",
-			name, netmask)
-	}
-	if name, _ := interfaceCarrying(output, "10.9.9.9"); name != "" {
-		t.Errorf("interfaceCarrying = %q, want empty", name)
 	}
 }
 
 func TestRouteHelperOnFixtures(t *testing.T) {
 	runner := newFixtureRunner()
-	runner.answerFile(t, "ifconfig", "ifconfig.txt")
+	fakeHostInterfaces(t)
 	runner.answerFile(t, "route -n get 192.168.128.2", "route-get.txt")
 	helper := newTestDriver(runner).Route()
 
@@ -139,7 +98,7 @@ func TestRouteHelperOnFixtures(t *testing.T) {
 
 func TestRouteHelperWithoutABridge(t *testing.T) {
 	runner := newFixtureRunner()
-	runner.answerFile(t, "ifconfig", "ifconfig.txt")
+	fakeHostInterfaces(t)
 	helper := newTestDriver(runner).Route()
 
 	route, err := helper.Describe(context.Background(), "192.168.200.1")
@@ -164,7 +123,7 @@ func TestRouteHelperWithoutABridge(t *testing.T) {
 
 func TestRouteInstallBuildsExpectedArgv(t *testing.T) {
 	runner := newFixtureRunner()
-	runner.answerFile(t, "ifconfig", "ifconfig.txt")
+	fakeHostInterfaces(t)
 	want := "sudo route -n add -net 192.168.128.0/24 " +
 		"-interface bridge101"
 	runner.answer(want, fixtureResponse{})
@@ -176,13 +135,4 @@ func TestRouteInstallBuildsExpectedArgv(t *testing.T) {
 	if !containsCall(runner.calls, want) {
 		t.Errorf("calls = %v, want %s", runner.calls, want)
 	}
-}
-
-func readFixture(t *testing.T, name string) string {
-	t.Helper()
-	content, err := os.ReadFile(filepath.Join("testdata", name))
-	if err != nil {
-		t.Fatalf("reading fixture %s: %v", name, err)
-	}
-	return string(content)
 }

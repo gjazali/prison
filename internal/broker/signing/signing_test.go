@@ -36,67 +36,38 @@ func TestUnavailableAgent(t *testing.T) {
 	if unavailable.Available() {
 		t.Fatal("Available() = true for an empty socket path")
 	}
-	_, err := unavailable.Keys(context.Background())
+	_, err := unavailable.PublicKey(context.Background(), "SHA256:x")
 	if err == nil || !strings.Contains(err.Error(), "SSH_AUTH_SOCK") {
-		t.Fatalf("Keys() error = %v, want one naming SSH_AUTH_SOCK", err)
+		t.Fatalf("PublicKey() error = %v, want one naming SSH_AUTH_SOCK", err)
 	}
 }
 
-func TestKeysListsLoadedKeys(t *testing.T) {
-	signer, keyring := newEd25519Keyring(t, "alice@example")
-	testAgent := NewAgent(serveKeyring(t, keyring))
-
-	keys, err := testAgent.Keys(context.Background())
-	if err != nil {
-		t.Fatalf("Keys() error = %v", err)
-	}
-	if len(keys) != 1 {
-		t.Fatalf("Keys() returned %d keys, want 1", len(keys))
-	}
-	wantFingerprint := ssh.FingerprintSHA256(signer.PublicKey())
-	if keys[0].Fingerprint != wantFingerprint {
-		t.Errorf("Fingerprint = %s, want %s", keys[0].Fingerprint,
-			wantFingerprint)
-	}
-	wantPublicKey := strings.TrimSpace(
-		string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
-	if keys[0].PublicKey != wantPublicKey {
-		t.Errorf("PublicKey = %q, want %q", keys[0].PublicKey, wantPublicKey)
-	}
-	if keys[0].Comment != "alice@example" {
-		t.Errorf("Comment = %q, want %q", keys[0].Comment, "alice@example")
-	}
-}
-
-func TestFindKeyMissing(t *testing.T) {
-	signer, keyring := newEd25519Keyring(t, "")
+func TestPublicKey(t *testing.T) {
+	signer, keyring := newEd25519Keyring(t)
 	testAgent := NewAgent(serveKeyring(t, keyring))
 
 	missing := "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-	_, err := testAgent.FindKey(context.Background(), missing)
+	_, err := testAgent.PublicKey(context.Background(), missing)
 	want := "the ssh agent has no key " + missing
 	if err == nil || err.Error() != want {
-		t.Fatalf("FindKey() error = %v, want %q", err, want)
+		t.Fatalf("PublicKey() error = %v, want %q", err, want)
 	}
 
-	found, err := testAgent.FindKey(
+	publicKey, err := testAgent.PublicKey(
 		context.Background(), ssh.FingerprintSHA256(signer.PublicKey()))
 	if err != nil {
-		t.Fatalf("FindKey() error = %v", err)
+		t.Fatalf("PublicKey() error = %v", err)
 	}
-	if !bytes.Equal(found.blob, signer.PublicKey().Marshal()) {
-		t.Fatal("FindKey() returned a key with the wrong blob")
+	wantPublicKey := strings.TrimSpace(
+		string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
+	if publicKey != wantPublicKey {
+		t.Errorf("PublicKey() = %q, want %q", publicKey, wantPublicKey)
 	}
 }
 
 func TestFingerprintMatchesSSHKeygen(t *testing.T) {
-	signer, keyring := newEd25519Keyring(t, "")
-	testAgent := NewAgent(serveKeyring(t, keyring))
-	keys, err := testAgent.Keys(context.Background())
-	if err != nil {
-		t.Fatalf("Keys() error = %v", err)
-	}
-	fingerprint := keys[0].Fingerprint
+	signer := newEd25519Key(t).signer
+	fingerprint := ssh.FingerprintSHA256(signer.PublicKey())
 
 	if !strings.HasPrefix(fingerprint, "SHA256:") ||
 		strings.HasSuffix(fingerprint, "=") || len(fingerprint) != 50 {
@@ -176,7 +147,7 @@ func TestSignSSHSIG(t *testing.T) {
 }
 
 func TestSignSSHSIGMissingKey(t *testing.T) {
-	_, keyring := newEd25519Keyring(t, "")
+	_, keyring := newEd25519Keyring(t)
 	testAgent := NewAgent(serveKeyring(t, keyring))
 	_, err := testAgent.SignSSHSIG(context.Background(),
 		"SHA256:nope", "git", []byte("x"))
@@ -188,7 +159,7 @@ func TestSignSSHSIGMissingKey(t *testing.T) {
 // TestSignSSHSIGRefused models a confirmation prompt that the host
 // user declines.
 func TestSignSSHSIGRefused(t *testing.T) {
-	signer, keyring := newEd25519Keyring(t, "")
+	signer, keyring := newEd25519Keyring(t)
 	testAgent := NewAgent(serveKeyring(t, refusingAgent{keyring}))
 	fingerprint := ssh.FingerprintSHA256(signer.PublicKey())
 
@@ -236,12 +207,12 @@ func TestContextCancellation(t *testing.T) {
 		200*time.Millisecond)
 	defer cancel()
 	started := time.Now()
-	_, err = NewAgent(socketPath).Keys(ctx)
+	_, err = NewAgent(socketPath).PublicKey(ctx, "SHA256:x")
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Keys() error = %v, want context.DeadlineExceeded", err)
+		t.Fatalf("PublicKey() error = %v, want context.DeadlineExceeded", err)
 	}
 	if time.Since(started) > 5*time.Second {
-		t.Fatal("Keys() did not return promptly after cancellation")
+		t.Fatal("PublicKey() did not return promptly after cancellation")
 	}
 }
 
@@ -385,15 +356,12 @@ func wrapTestKey(t *testing.T, privateKey any) testKey {
 	return testKey{privateKey: privateKey, signer: signer}
 }
 
-func newEd25519Keyring(
-	t *testing.T, comment string,
-) (ssh.Signer, agent.Agent) {
+func newEd25519Keyring(t *testing.T) (ssh.Signer, agent.Agent) {
 	t.Helper()
 	key := newEd25519Key(t)
 	keyring := agent.NewKeyring()
 	if err := keyring.Add(agent.AddedKey{
-		PrivateKey: key.privateKey, Comment: comment,
-	}); err != nil {
+		PrivateKey: key.privateKey}); err != nil {
 		t.Fatal(err)
 	}
 	return key.signer, keyring

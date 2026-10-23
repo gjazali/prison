@@ -7,11 +7,73 @@ import (
 
 	"prison/internal/config"
 	"prison/internal/isolator"
-	"prison/internal/isolator/fake"
 	"prison/internal/state"
 )
 
-func newHostSetupSession(t *testing.T, fakeIsolator *fake.Isolator) *Session {
+type hostSetupIsolator struct {
+	isolator.Isolator
+	Domains          map[string]bool
+	RouteIsInstalled bool
+	Calls            []string
+}
+
+func newHostSetupIsolator() *hostSetupIsolator {
+	return &hostSetupIsolator{Domains: map[string]bool{}}
+}
+
+func (f *hostSetupIsolator) DNS() isolator.DNSDomain { return fakeDNS{f} }
+
+func (f *hostSetupIsolator) Route() isolator.HostRoute {
+	return fakeRoute{f}
+}
+
+type fakeDNS struct{ owner *hostSetupIsolator }
+
+func (d fakeDNS) Exists(ctx context.Context, domain string) (bool, error) {
+	d.owner.Calls = append(d.owner.Calls, "DNS.Exists")
+	return d.owner.Domains[domain], nil
+}
+
+func (d fakeDNS) Describe(domain string) []string { return nil }
+
+func (d fakeDNS) Register(ctx context.Context, domain string) error {
+	d.owner.Calls = append(d.owner.Calls, "DNS.Register")
+	d.owner.Domains[domain] = true
+	return nil
+}
+
+func (d fakeDNS) RepairHint(domain string) []string { return nil }
+
+type fakeRoute struct{ owner *hostSetupIsolator }
+
+func (r fakeRoute) Describe(
+	ctx context.Context, gateway string,
+) (*isolator.RouteInfo, error) {
+	return &isolator.RouteInfo{}, nil
+}
+
+func (r fakeRoute) Installed(
+	ctx context.Context, gateway string,
+) (bool, error) {
+	r.owner.Calls = append(r.owner.Calls, "Route.Installed")
+	return r.owner.RouteIsInstalled, nil
+}
+
+func (r fakeRoute) Command(
+	ctx context.Context, gateway string,
+) (string, error) {
+	return "", nil
+}
+
+func (r fakeRoute) Install(ctx context.Context, gateway string) error {
+	r.owner.Calls = append(r.owner.Calls, "Route.Install")
+	r.owner.RouteIsInstalled = true
+	return nil
+}
+
+func newHostSetupSession(
+	t *testing.T, fakeIsolator *hostSetupIsolator,
+) *Session {
 	t.Helper()
 	return &Session{Environment: &Environment{
 		Isolator: fakeIsolator,
@@ -23,15 +85,8 @@ func newHostSetupSession(t *testing.T, fakeIsolator *fake.Isolator) *Session {
 	}}
 }
 
-func calledMethod(calls []string, method string) bool {
-	return slices.ContainsFunc(calls, func(line string) bool {
-		return line == method || len(line) > len(method) &&
-			line[:len(method)+1] == method+" "
-	})
-}
-
 func TestEnsureHostDNSRegistersADomainThatIsNotThere(t *testing.T) {
-	fakeIsolator := fake.New()
+	fakeIsolator := newHostSetupIsolator()
 	session := newHostSetupSession(t, fakeIsolator)
 	session.ensureHostDNS(context.Background())
 	if !fakeIsolator.Domains["prison"] {
@@ -40,18 +95,18 @@ func TestEnsureHostDNSRegistersADomainThatIsNotThere(t *testing.T) {
 }
 
 func TestEnsureHostDNSLeavesARegisteredDomainAlone(t *testing.T) {
-	fakeIsolator := fake.New()
+	fakeIsolator := newHostSetupIsolator()
 	fakeIsolator.Domains["prison"] = true
 	session := newHostSetupSession(t, fakeIsolator)
 	session.ensureHostDNS(context.Background())
-	if calledMethod(fakeIsolator.Calls, "DNS.Register") {
+	if slices.Contains(fakeIsolator.Calls, "DNS.Register") {
 		t.Errorf("Calls = %v, want no DNS.Register",
 			fakeIsolator.Calls)
 	}
 }
 
 func TestEnsureHostRouteAddsAMissingRoute(t *testing.T) {
-	fakeIsolator := fake.New()
+	fakeIsolator := newHostSetupIsolator()
 	session := newHostSetupSession(t, fakeIsolator)
 	session.ensureHostRoute(context.Background(),
 		isolator.NetworkInfo{Gateway: "192.168.128.1"})
@@ -61,18 +116,18 @@ func TestEnsureHostRouteAddsAMissingRoute(t *testing.T) {
 }
 
 func TestEnsureHostRouteLeavesAWorkingRouteAlone(t *testing.T) {
-	fakeIsolator := fake.New()
+	fakeIsolator := newHostSetupIsolator()
 	fakeIsolator.RouteIsInstalled = true
 	session := newHostSetupSession(t, fakeIsolator)
 	session.ensureHostRoute(context.Background(),
 		isolator.NetworkInfo{Gateway: "192.168.128.1"})
-	if calledMethod(fakeIsolator.Calls, "Route.Install") {
+	if slices.Contains(fakeIsolator.Calls, "Route.Install") {
 		t.Errorf("Calls = %v, want no Route.Install", fakeIsolator.Calls)
 	}
 }
 
 func TestEnsureHostRouteWaitsForABridge(t *testing.T) {
-	fakeIsolator := fake.New()
+	fakeIsolator := newHostSetupIsolator()
 	session := newHostSetupSession(t, fakeIsolator)
 	session.ensureHostRoute(context.Background(), isolator.NetworkInfo{})
 	if len(fakeIsolator.Calls) != 0 {

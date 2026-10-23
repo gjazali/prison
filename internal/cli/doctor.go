@@ -176,7 +176,7 @@ func (report *doctorReport) reportBroker(ctx context.Context) {
 	report.detail("pid", "%d", status.PID)
 	report.detail("vault", "%s", status.Vault)
 	for _, listener := range status.Listeners {
-		report.detail("listener", "%s", doctorListenerText(listener))
+		report.detail("listener", "%s", describeListener(listener))
 	}
 	report.detail("projects", "%d", len(status.Projects))
 }
@@ -297,20 +297,6 @@ func (report *doctorReport) reportLegacyLayout() {
 	report.command(fmt.Sprintf("mv %s %s-old", shortPath, shortPath))
 	report.command("prison up")
 	report.note("then add the secrets again")
-}
-
-func doctorListenerText(listener control.Listener) string {
-	address := listener.Address
-	if listener.Port != 0 {
-		address = fmt.Sprintf("%s:%d", address, listener.Port)
-	}
-	if listener.Bound {
-		return address + ", bound"
-	}
-	if listener.Error != "" {
-		return fmt.Sprintf("%s, not bound: %s", address, listener.Error)
-	}
-	return address + ", not bound"
 }
 
 func doctorProjectPathText(project *state.Project) string {

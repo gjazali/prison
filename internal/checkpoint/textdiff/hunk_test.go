@@ -57,17 +57,18 @@ func TestHunksGroupByContext(t *testing.T) {
 }
 
 func TestUnifiedFormatsHeadersAndRanges(t *testing.T) {
-	got := Unified(nil, []string{"only"}, "a/f", "b/f", 3)
+	got := Unified(nil, []string{"only"}, "a/f", "b/f", 3, false)
 	want := []string{"--- a/f", "+++ b/f", "@@ -0,0 +1 @@", "+only"}
 	if !slices.Equal(got, want) {
 		t.Errorf("Unified(added) = %q, want %q", got, want)
 	}
-	got = Unified([]string{"x", "y"}, nil, "a/f", "b/f", 3)
+	got = Unified([]string{"x", "y"}, nil, "a/f", "b/f", 3, false)
 	want = []string{"--- a/f", "+++ b/f", "@@ -1,2 +0,0 @@", "-x", "-y"}
 	if !slices.Equal(got, want) {
 		t.Errorf("Unified(removed) = %q, want %q", got, want)
 	}
-	if got := Unified([]string{"x"}, []string{"x"}, "a", "b", 3); got != nil {
+	got = Unified([]string{"x"}, []string{"x"}, "a", "b", 3, false)
+	if got != nil {
 		t.Errorf("Unified(identical) = %q, want nil", got)
 	}
 }
@@ -126,7 +127,7 @@ func TestUnifiedMatchesSystemDiff(t *testing.T) {
 			if !available {
 				t.Skip("system diff is not installed")
 			}
-			got := Unified(fixture.a, fixture.b, "a", "b", context)
+			got := Unified(fixture.a, fixture.b, "a", "b", context, false)
 			if len(got) > 2 {
 				got = got[2:]
 			}

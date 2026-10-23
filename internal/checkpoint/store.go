@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"prison/internal/state"
 )
 
 const (
@@ -255,13 +257,13 @@ func (store *Store) Take(label string) (Checkpoint, error) {
 		return Checkpoint{}, fmt.Errorf(
 			"cannot write the details of checkpoint %s: %w", identifier, err)
 	}
-	if err := writeFileAtomically(
+	if err := state.WriteFileAtomic(
 		store.snapshotPath(identifier, manifestSuffix),
 		formatManifest(entries), 0o644); err != nil {
 		return Checkpoint{}, fmt.Errorf("cannot write checkpoint %s: %w",
 			identifier, err)
 	}
-	if err := writeFileAtomically(
+	if err := state.WriteFileAtomic(
 		store.snapshotPath(identifier, metadataSuffix),
 		append(document, '\n'), 0o644); err != nil {
 		return Checkpoint{}, fmt.Errorf(
@@ -413,27 +415,4 @@ func (store *Store) Prune() (int, int64, error) {
 		}
 	}
 	return removed, freed, nil
-}
-
-func writeFileAtomically(path string, data []byte, mode os.FileMode) error {
-	directory := filepath.Dir(path)
-	temporary, err := os.CreateTemp(directory, "partial-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(temporary.Name())
-	_, err = temporary.Write(data)
-	if err == nil {
-		err = temporary.Sync()
-	}
-	if closeErr := temporary.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	if err := os.Chmod(temporary.Name(), mode); err != nil {
-		return err
-	}
-	return os.Rename(temporary.Name(), path)
 }

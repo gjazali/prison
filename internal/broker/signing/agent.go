@@ -14,13 +14,6 @@ import (
 
 const agentTimeout = 30 * time.Second
 
-type AgentKey struct {
-	Fingerprint string
-	PublicKey   string
-	Comment     string
-	blob        []byte
-}
-
 type Agent struct {
 	socketPath string
 }
@@ -33,42 +26,19 @@ func (a *Agent) Available() bool {
 	return a != nil && a.socketPath != ""
 }
 
-func (a *Agent) Keys(ctx context.Context) ([]AgentKey, error) {
-	var found []AgentKey
-	err := a.withClient(ctx, func(client agent.ExtendedAgent) error {
-		listed, err := client.List()
-		if err != nil {
-			return fmt.Errorf("cannot list the ssh agent keys: %w", err)
-		}
-		found = make([]AgentKey, 0, len(listed))
-		for _, key := range listed {
-			found = append(found, describeAgentKey(key))
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return found, nil
-}
-
-func (a *Agent) FindKey(
+func (a *Agent) PublicKey(
 	ctx context.Context, fingerprint string,
-) (*AgentKey, error) {
-	var found *AgentKey
+) (string, error) {
+	var publicKey string
 	err := a.withClient(ctx, func(client agent.ExtendedAgent) error {
 		key, err := findAgentKey(client, fingerprint)
 		if err != nil {
 			return err
 		}
-		described := describeAgentKey(key)
-		found = &described
+		publicKey = authorizedKey(key)
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	return found, nil
+	return publicKey, err
 }
 
 func findAgentKey(
@@ -87,14 +57,8 @@ func findAgentKey(
 		"the ssh agent has no key %s", fingerprint)
 }
 
-func describeAgentKey(key *agent.Key) AgentKey {
-	return AgentKey{
-		Fingerprint: ssh.FingerprintSHA256(key),
-		PublicKey: key.Type() + " " +
-			base64.StdEncoding.EncodeToString(key.Blob),
-		Comment: key.Comment,
-		blob:    key.Blob,
-	}
+func authorizedKey(key *agent.Key) string {
+	return key.Type() + " " + base64.StdEncoding.EncodeToString(key.Blob)
 }
 
 func (a *Agent) withClient(

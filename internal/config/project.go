@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -179,7 +181,7 @@ func (project *Project) validateSecrets() error {
 
 func readEnvironment(table map[string]any) (map[string]string, error) {
 	environment := make(map[string]string, len(table))
-	for _, name := range sortedKeys(table) {
+	for _, name := range slices.Sorted(maps.Keys(table)) {
 		if err := ValidateBoxEnvironmentName(name); err != nil {
 			return nil, err
 		}

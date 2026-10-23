@@ -3,8 +3,10 @@ package applecontainer
 import (
 	"context"
 	"fmt"
-	"math/bits"
-	"strconv"
+	"maps"
+	"net"
+	"net/netip"
+	"slices"
 	"strings"
 
 	"prison/internal/isolator"
@@ -22,30 +24,58 @@ func (helper routeHelper) Describe(
 	if gateway == "" {
 		return nil, nil
 	}
-	stdout, _, status, err := helper.driver.runCapturing(ctx, "ifconfig")
+	addressesByInterface, err := hostInterfaceAddresses()
+	if err != nil {
+		return nil, fmt.Errorf("cannot read the host interfaces: %w", err)
+	}
+	return routeCarrying(gateway, addressesByInterface), nil
+}
+
+var hostInterfaceAddresses = func() (map[string][]net.Addr, error) {
+	interfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, err
 	}
-	if status != 0 {
-		return nil, fmt.Errorf("cannot read the host interfaces")
+	addressesByInterface := make(map[string][]net.Addr, len(interfaces))
+	for _, hostInterface := range interfaces {
+		addresses, err := hostInterface.Addrs()
+		if err != nil {
+			return nil, err
+		}
+		addressesByInterface[hostInterface.Name] = addresses
 	}
-	interfaceName, netmask := interfaceCarrying(string(stdout), gateway)
-	if interfaceName == "" || netmask == "" {
-		return nil, nil
+	return addressesByInterface, nil
+}
+
+// routeCarrying matches IPv4 only because the route commands expect IPv4.
+func routeCarrying(
+	gateway string, addressesByInterface map[string][]net.Addr,
+) *isolator.RouteInfo {
+	gatewayAddress, err := netip.ParseAddr(gateway)
+	if err != nil || !gatewayAddress.Is4() {
+		return nil
 	}
-	prefix, err := netmaskPrefixLength(netmask)
-	if err != nil {
-		return nil, err
+	names := slices.Sorted(maps.Keys(addressesByInterface))
+	for _, interfaceName := range names {
+		for _, address := range addressesByInterface[interfaceName] {
+			network, ok := address.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip, ok := netip.AddrFromSlice(network.IP)
+			if !ok || ip.Unmap() != gatewayAddress {
+				continue
+			}
+			prefix, _ := network.Mask.Size()
+			return &isolator.RouteInfo{
+				Network: netip.PrefixFrom(gatewayAddress, prefix).
+					Masked().Addr().String(),
+				Prefix:    prefix,
+				Interface: interfaceName,
+			}
+		}
 	}
-	network, err := networkAddressFor(gateway, prefix)
-	if err != nil {
-		return nil, err
-	}
-	return &isolator.RouteInfo{
-		Network:   network,
-		Prefix:    prefix,
-		Interface: interfaceName,
-	}, nil
+	return nil
 }
 
 // Installed reports true when no interface carries the gateway, because
@@ -115,24 +145,6 @@ func routeAddCommand(route *isolator.RouteInfo) string {
 		route.Network, route.Prefix, route.Interface)
 }
 
-func interfaceCarrying(
-	output string, address string,
-) (interfaceName string, netmask string) {
-	current := ""
-	for _, line := range strings.Split(output, "\n") {
-		if line != "" && line[0] >= 'a' && line[0] <= 'z' {
-			current = strings.TrimSuffix(strings.Fields(line)[0], ":")
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) >= 4 &&
-			fields[0] == "inet" && fields[1] == address {
-			return current, fields[3]
-		}
-	}
-	return "", ""
-}
-
 func routedInterface(output string) string {
 	for _, line := range strings.Split(output, "\n") {
 		fields := strings.Fields(line)
@@ -148,39 +160,4 @@ func probeAddressIn(network string) string {
 		return network[:index+1] + "2"
 	}
 	return network
-}
-
-func netmaskPrefixLength(netmask string) (int, error) {
-	digits := strings.TrimPrefix(
-		strings.TrimPrefix(netmask, "0x"), "0X")
-	value, err := strconv.ParseUint(digits, 16, 32)
-	if err != nil {
-		return 0, fmt.Errorf("invalid netmask %s: %w", netmask, err)
-	}
-	return bits.OnesCount32(uint32(value)), nil
-}
-
-func networkAddressFor(address string, prefix int) (string, error) {
-	octets := strings.Split(address, ".")
-	if len(octets) != 4 || prefix < 0 || prefix > 32 {
-		return "", fmt.Errorf("cannot mask %s to a /%d", address, prefix)
-	}
-	masked := make([]string, 4)
-	for index, text := range octets {
-		value, err := strconv.Atoi(text)
-		if err != nil || value < 0 || value > 255 {
-			return "", fmt.Errorf("invalid address %s", address)
-		}
-		kept := prefix - index*8
-		switch {
-		case kept >= 8:
-			masked[index] = text
-		case kept <= 0:
-			masked[index] = "0"
-		default:
-			masked[index] = strconv.Itoa(
-				value & (0xff << (8 - kept)) & 0xff)
-		}
-	}
-	return strings.Join(masked, "."), nil
 }

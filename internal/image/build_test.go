@@ -11,21 +11,40 @@ import (
 	"testing/fstest"
 
 	"prison/internal/isolator"
-	"prison/internal/isolator/fake"
 )
 
 type recordingIsolator struct {
-	*fake.Isolator
+	Images      map[string]bool
+	Fail        map[string]error
+	Calls       []string
+	BuildSpecs  []isolator.BuildSpec
 	directories map[string]string
 	files       map[string]string
 }
 
 func newRecordingIsolator() *recordingIsolator {
 	return &recordingIsolator{
-		Isolator:    fake.New(),
+		Images:      map[string]bool{},
+		Fail:        map[string]error{},
 		directories: map[string]string{},
 		files:       map[string]string{},
 	}
+}
+
+func (c *recordingIsolator) record(method string, arguments ...string) error {
+	c.Calls = append(c.Calls, strings.Join(append([]string{method},
+		arguments...), " "))
+	return c.Fail[method]
+}
+
+func (c *recordingIsolator) ImageExists(
+	ctx context.Context, tag string,
+) (bool, error) {
+	return c.Images[tag], c.record("ImageExists", tag)
+}
+
+func (c *recordingIsolator) ReleaseBuilder(ctx context.Context) error {
+	return c.record("ReleaseBuilder")
 }
 
 func (c *recordingIsolator) Build(
@@ -52,7 +71,12 @@ func (c *recordingIsolator) Build(
 	if walkError != nil {
 		return walkError
 	}
-	return c.Isolator.Build(ctx, spec)
+	if err := c.record("Build", spec.Tag); err != nil {
+		return err
+	}
+	c.BuildSpecs = append(c.BuildSpecs, spec)
+	c.Images[spec.Tag] = true
+	return nil
 }
 
 func buildLog(c *recordingIsolator) []string {

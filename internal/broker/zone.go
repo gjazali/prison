@@ -114,8 +114,8 @@ func (broker *Broker) serveKeys(w http.ResponseWriter, r *http.Request, snapshot
 			Available:   secret.Sign.Algorithm != vault.AlgorithmSSHAgent,
 		}
 		if secret.Sign.Algorithm == vault.AlgorithmSSHAgent {
-			if key, err := broker.agent.FindKey(r.Context(), secret.Sign.Fingerprint); err == nil {
-				publicKey := key.PublicKey
+			if publicKey, err := broker.agent.PublicKey(r.Context(),
+				secret.Sign.Fingerprint); err == nil {
 				described.PublicKey = &publicKey
 				described.Available = true
 			}

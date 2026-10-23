@@ -2,6 +2,7 @@ package config
 
 import (
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -11,13 +12,13 @@ const fallbackPager = "less -R"
 func ResolveInmates(
 	overrides *Overrides, project *Project, global *Global) []string {
 	if overrides != nil && overrides.Inmates != nil {
-		return copyStrings(*overrides.Inmates)
+		return slices.Clone(*overrides.Inmates)
 	}
 	if project != nil && project.Prison.Inmates != nil {
-		return copyStrings(*project.Prison.Inmates)
+		return slices.Clone(*project.Prison.Inmates)
 	}
 	if global != nil && global.Prison.Inmates != nil {
-		return copyStrings(*global.Prison.Inmates)
+		return slices.Clone(*global.Prison.Inmates)
 	}
 	return []string{}
 }
@@ -54,12 +55,12 @@ func ResolveSudo(overrides *Overrides, project *Project) bool {
 
 func ResolvePorts(overrides *Overrides, project *Project) ([]int, bool) {
 	if overrides != nil && overrides.Ports != nil {
-		return copyPorts(*overrides.Ports), true
+		return slices.Clone(*overrides.Ports), true
 	}
 	if project != nil && project.Box.Ports != nil {
-		return copyPorts(*project.Box.Ports), true
+		return slices.Clone(*project.Box.Ports), true
 	}
-	return copyPorts(DefaultPorts), false
+	return slices.Clone(DefaultPorts), false
 }
 
 // ResolvePager returns an empty string to turn paging off.
@@ -93,16 +94,4 @@ func ResolveDiffTool(overrides *Overrides, global *Global) string {
 		return *global.Checkpoint.DiffTool
 	}
 	return ""
-}
-
-func copyStrings(values []string) []string {
-	copied := make([]string, len(values))
-	copy(copied, values)
-	return copied
-}
-
-func copyPorts(values []int) []int {
-	copied := make([]int, len(values))
-	copy(copied, values)
-	return copied
 }

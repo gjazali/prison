@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -179,10 +178,6 @@ func NewAllowList(lists ...[]Pattern) *AllowList {
 	return list
 }
 
-func (a *AllowList) Patterns() []Pattern {
-	return append([]Pattern(nil), a.patterns...)
-}
-
 func (a *AllowList) Strings() []string {
 	out := make([]string, 0, len(a.patterns))
 	for _, pattern := range a.patterns {
@@ -215,27 +210,6 @@ func (a *AllowList) HostMatches(host string) bool {
 		}
 	}
 	return false
-}
-
-func (a *AllowList) PortsForHost(host string) (ports []int, all bool) {
-	seen := map[int]bool{}
-	for _, pattern := range a.patterns {
-		if !pattern.MatchesHost(host) {
-			continue
-		}
-		if pattern.AllPorts {
-			all = true
-			continue
-		}
-		for _, port := range pattern.Ports {
-			if !seen[port] {
-				seen[port] = true
-				ports = append(ports, port)
-			}
-		}
-	}
-	sort.Ints(ports)
-	return ports, all
 }
 
 func DefaultFloor() []Pattern {

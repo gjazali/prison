@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -78,15 +79,13 @@ func runHostFirewall(command *cobra.Command, removeRules bool) error {
 	}
 	ui.Progress("the rules are %s", hostFirewallStateText(state))
 	if removeRules {
-		return removeHostFirewall(command, stagingDirectory, state)
+		return removeHostFirewall(ctx, stagingDirectory, state)
 	}
-	return installHostFirewall(command, spec, stagingDirectory)
+	return installHostFirewall(ctx, command, spec, stagingDirectory)
 }
 
-func installHostFirewall(command *cobra.Command, spec hostfw.Spec,
-	stagingDirectory string) error {
-	ctx, cancel := commandContext()
-	defer cancel()
+func installHostFirewall(ctx context.Context, command *cobra.Command,
+	spec hostfw.Spec, stagingDirectory string) error {
 	out := command.OutOrStdout()
 	printIndentedBlock(out, strings.Join(hostfw.Describe(spec), "\n"))
 	fmt.Fprintln(out)
@@ -103,10 +102,8 @@ func installHostFirewall(command *cobra.Command, spec hostfw.Spec,
 	return nil
 }
 
-func removeHostFirewall(command *cobra.Command, stagingDirectory string,
+func removeHostFirewall(ctx context.Context, stagingDirectory string,
 	state hostfw.State) error {
-	ctx, cancel := commandContext()
-	defer cancel()
 	if state == hostfw.StateMissing {
 		ui.Progress("the rules are not installed")
 		return nil

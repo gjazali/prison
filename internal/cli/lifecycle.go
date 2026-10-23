@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"prison/internal/checkpoint"
 	"prison/internal/config"
 	"prison/internal/isolator"
 	"prison/internal/session"
@@ -445,7 +444,8 @@ func describeGrantedSecrets(current *session.Session) string {
 
 func describeBoxProject(environment *session.Environment,
 	boxName string) string {
-	identifier := projectIDFromBoxName(boxName, environment.Overrides.Domain)
+	identifier := session.ProjectIDFromBoxName(
+		boxName, environment.Overrides.Domain)
 	if identifier == "" {
 		return "(no state)"
 	}
@@ -467,17 +467,6 @@ func describeProjectOf(project *state.Project) string {
 	return record.Path + " (gone)"
 }
 
-func projectIDFromBoxName(boxName, domain string) string {
-	candidate := strings.TrimSuffix(boxName, "."+domain)
-	if index := strings.LastIndex(candidate, "-"); index >= 0 {
-		candidate = candidate[index+1:]
-	}
-	if !state.IsProjectID(candidate) {
-		return ""
-	}
-	return candidate
-}
-
 func describeBoxPresence(box isolator.BoxInfo) string {
 	switch {
 	case box.Running:
@@ -495,12 +484,7 @@ func reportCheckpointDrift(current *session.Session) {
 	if !directoryIsPresent(snapshots) {
 		return
 	}
-	patterns := append([]string(nil), checkpoint.DefaultIgnores...)
-	if current.Config != nil {
-		patterns = append(patterns, current.Config.Checkpoint.Ignore...)
-	}
-	store, err := checkpoint.Open(current.Project.CheckpointsDir(),
-		current.Directory, checkpoint.NewIgnore(patterns))
+	store, err := openCheckpointStore(current)
 	if err != nil {
 		return
 	}

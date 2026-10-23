@@ -310,28 +310,27 @@ func NewToken() (string, error) {
 }
 
 func WriteFileAtomic(path string, data []byte, mode os.FileMode) error {
-	directory := filepath.Dir(path)
-	temporary, err := os.CreateTemp(directory, "."+filepath.Base(path)+".*")
+	temporary, err := os.CreateTemp(
+		filepath.Dir(path), "."+filepath.Base(path)+".*")
 	if err != nil {
 		return fmt.Errorf("cannot write %s: %w", path, err)
 	}
-	temporaryPath := temporary.Name()
+	defer os.Remove(temporary.Name())
 	if err := temporary.Chmod(mode); err != nil {
 		temporary.Close()
-		os.Remove(temporaryPath)
 		return fmt.Errorf("cannot set the mode of %s: %w", path, err)
 	}
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		os.Remove(temporaryPath)
+	_, err = temporary.Write(data)
+	if err == nil {
+		err = temporary.Sync()
+	}
+	if closeErr := temporary.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
 		return fmt.Errorf("cannot write %s: %w", path, err)
 	}
-	if err := temporary.Close(); err != nil {
-		os.Remove(temporaryPath)
-		return fmt.Errorf("cannot write %s: %w", path, err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		os.Remove(temporaryPath)
+	if err := os.Rename(temporary.Name(), path); err != nil {
 		return fmt.Errorf("cannot replace %s: %w", path, err)
 	}
 	return nil

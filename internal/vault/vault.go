@@ -148,14 +148,6 @@ func (v *Vault) Lock() {
 	v.document = nil
 }
 
-// Reload drops the cached document on error so that a stale document is
-// never used.
-func (v *Vault) Reload() error {
-	v.mutex.Lock()
-	defer v.mutex.Unlock()
-	return v.reloadLocked()
-}
-
 func (v *Vault) Secret(name string) (*Secret, bool) {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()

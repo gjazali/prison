@@ -104,11 +104,8 @@ func describeInmates(current *session.Session, result *session.UpResult) string 
 }
 
 func inmateIsInBox(runCommand string, result *session.UpResult) bool {
-	fields := strings.Fields(runCommand)
-	if len(fields) == 0 {
-		return false
-	}
-	return result.Probe.Has(fields[0])
+	name := session.FirstWord(runCommand)
+	return name != "" && result.Probe.Has(name)
 }
 
 func printSessionLines(current *session.Session, result *session.UpResult) {

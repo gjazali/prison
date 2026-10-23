@@ -166,11 +166,8 @@ func (e *Environment) ResolveBoxArgument(argument string) (*state.Project, error
 		}
 		return e.Root.Project(directory)
 	}
-	candidate := strings.TrimSuffix(argument, "."+e.Overrides.Domain)
-	if i := strings.LastIndex(candidate, "-"); i >= 0 {
-		candidate = candidate[i+1:]
-	}
-	if !state.IsProjectID(candidate) {
+	candidate := ProjectIDFromBoxName(argument, e.Overrides.Domain)
+	if candidate == "" {
 		return nil, fmt.Errorf("%q is not a box name or project id. "+
 			"Run `prison list`", argument)
 	}
@@ -179,6 +176,17 @@ func (e *Environment) ResolveBoxArgument(argument string) (*state.Project, error
 		return nil, fmt.Errorf("no state for %q. Run `prison list`", argument)
 	}
 	return project, nil
+}
+
+func ProjectIDFromBoxName(boxName, domain string) string {
+	candidate := strings.TrimSuffix(boxName, "."+domain)
+	if index := strings.LastIndex(candidate, "-"); index >= 0 {
+		candidate = candidate[index+1:]
+	}
+	if !state.IsProjectID(candidate) {
+		return ""
+	}
+	return candidate
 }
 
 func (s *Session) RequireProjectRecord() (*state.ProjectRecord, error) {

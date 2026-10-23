@@ -29,10 +29,6 @@ const secretLogDefaultLimit = 40
 
 const secretLogTimeLayout = "2006-01-02T15:04:05"
 
-// passphrasePrompt is a function type so that tests can run without a
-// terminal.
-type passphrasePrompt func(prompt string) (string, error)
-
 func init() {
 	registerGroup(addSecretCommands)
 }
@@ -43,7 +39,7 @@ func addSecretCommands(root *cobra.Command) {
 		Short: "manage secrets",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return runSecretList(false, promptForVaultPassphrase)
+			return runSecretList(false)
 		},
 	}
 	group.PersistentFlags().IntVar(&secretPassphraseDescriptor,
@@ -70,7 +66,7 @@ func newSecretInitCommand() *cobra.Command {
 		Short: "create the vault",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return runSecretInit(promptForVaultPassphrase)
+			return runSecretInit()
 		},
 	}
 }
@@ -83,7 +79,7 @@ func newSecretAddCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			options.name = arguments[0]
-			return runSecretAdd(options, promptForVaultPassphrase)
+			return runSecretAdd(options)
 		},
 	}
 	addSecretAddFlags(command, options)
@@ -97,7 +93,7 @@ func newSecretListCommand() *cobra.Command {
 		Short: "list the secrets in the vault",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return runSecretList(asJSON, promptForVaultPassphrase)
+			return runSecretList(asJSON)
 		},
 	}
 	command.Flags().BoolVar(&asJSON, "json", false,
@@ -112,7 +108,7 @@ func newSecretShowCommand() *cobra.Command {
 		Short: "show a secret without its value",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return runSecretShow(arguments[0], asJSON, promptForVaultPassphrase)
+			return runSecretShow(arguments[0], asJSON)
 		},
 	}
 	command.Flags().BoolVar(&asJSON, "json", false,
@@ -126,7 +122,7 @@ func newSecretRemoveCommand() *cobra.Command {
 		Short: "remove a secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return runSecretRemove(arguments[0], promptForVaultPassphrase)
+			return runSecretRemove(arguments[0])
 		},
 	}
 }
@@ -137,7 +133,7 @@ func newSecretGrantCommand() *cobra.Command {
 		Short: "let this project use a secret",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return runSecretGrant(arguments[0], promptForVaultPassphrase)
+			return runSecretGrant(arguments[0])
 		},
 	}
 }
@@ -193,7 +189,7 @@ func newSecretUnlockCommand() *cobra.Command {
 		Short: "unlock the vault in the running broker",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return runSecretUnlock(promptForVaultPassphrase)
+			return runSecretUnlock()
 		},
 	}
 }
@@ -264,7 +260,7 @@ type secretLogOptions struct {
 	limit       int
 }
 
-func runSecretInit(prompt passphrasePrompt) error {
+func runSecretInit() error {
 	environment, err := loadEnvironment()
 	if err != nil {
 		return err
@@ -273,11 +269,11 @@ func runSecretInit(prompt passphrasePrompt) error {
 	if vault.Exists(path) {
 		return fmt.Errorf("a vault exists at %s", path)
 	}
-	passphrase, err := prompt("new vault passphrase: ")
+	passphrase, err := promptForVaultPassphrase("new vault passphrase: ")
 	if err != nil {
 		return err
 	}
-	again, err := prompt("vault passphrase again: ")
+	again, err := promptForVaultPassphrase("vault passphrase again: ")
 	if err != nil {
 		return err
 	}
@@ -294,12 +290,12 @@ func runSecretInit(prompt passphrasePrompt) error {
 	return nil
 }
 
-func runSecretAdd(options *secretAddOptions, prompt passphrasePrompt) error {
+func runSecretAdd(options *secretAddOptions) error {
 	environment, err := loadEnvironment()
 	if err != nil {
 		return err
 	}
-	opened, err := openSecretVault(environment.Root, prompt)
+	opened, err := openSecretVault(environment.Root)
 	if err != nil {
 		return err
 	}
@@ -416,12 +412,12 @@ func (options *secretAddOptions) readValueFromItsSource() (string, error) {
 	return strings.TrimSuffix(string(piped), "\n"), nil
 }
 
-func runSecretList(asJSON bool, prompt passphrasePrompt) error {
+func runSecretList(asJSON bool) error {
 	environment, err := loadEnvironment()
 	if err != nil {
 		return err
 	}
-	opened, err := openSecretVault(environment.Root, prompt)
+	opened, err := openSecretVault(environment.Root)
 	if err != nil {
 		return err
 	}
@@ -433,7 +429,7 @@ func runSecretList(asJSON bool, prompt passphrasePrompt) error {
 		fmt.Println("no secrets. Run `prison secret add <name>`")
 		return nil
 	}
-	counts, err := secretGrantCounts(environment.Root)
+	grantingBySecret, err := secretGrantingProjects(environment.Root)
 	if err != nil {
 		return err
 	}
@@ -443,18 +439,18 @@ func runSecretList(asJSON bool, prompt passphrasePrompt) error {
 			secret.Name,
 			secret.Mode,
 			describeSecret(secret),
-			strconv.Itoa(counts[secret.Name]),
+			strconv.Itoa(len(grantingBySecret[secret.Name])),
 		})
 	}
 	return ui.Table(os.Stdout, rows)
 }
 
-func runSecretShow(name string, asJSON bool, prompt passphrasePrompt) error {
+func runSecretShow(name string, asJSON bool) error {
 	environment, err := loadEnvironment()
 	if err != nil {
 		return err
 	}
-	opened, err := openSecretVault(environment.Root, prompt)
+	opened, err := openSecretVault(environment.Root)
 	if err != nil {
 		return err
 	}
@@ -465,28 +461,30 @@ func runSecretShow(name string, asJSON bool, prompt passphrasePrompt) error {
 	if asJSON {
 		return printSecretJSON(secretWithDigestedValue(secret))
 	}
-	granting, err := secretGrantingProjects(environment.Root, name)
+	grantingBySecret, err := secretGrantingProjects(environment.Root)
 	if err != nil {
 		return err
 	}
+	granting := grantingBySecret[name]
 	fmt.Println(describeSecretRecord(secret))
 	fmt.Println(secretLine("granted to", "%s", describeGrantingProjects(granting)))
 	return nil
 }
 
-func runSecretRemove(name string, prompt passphrasePrompt) error {
+func runSecretRemove(name string) error {
 	environment, err := loadEnvironment()
 	if err != nil {
 		return err
 	}
-	opened, err := openSecretVault(environment.Root, prompt)
+	opened, err := openSecretVault(environment.Root)
 	if err != nil {
 		return err
 	}
-	granting, err := secretGrantingProjects(environment.Root, name)
+	grantingBySecret, err := secretGrantingProjects(environment.Root)
 	if err != nil {
 		return err
 	}
+	granting := grantingBySecret[name]
 	removed, err := opened.DeleteSecret(name)
 	if err != nil {
 		return err
@@ -505,7 +503,7 @@ func runSecretRemove(name string, prompt passphrasePrompt) error {
 	return nil
 }
 
-func runSecretGrant(name string, prompt passphrasePrompt) error {
+func runSecretGrant(name string) error {
 	environment, err := loadEnvironment()
 	if err != nil {
 		return err
@@ -514,7 +512,7 @@ func runSecretGrant(name string, prompt passphrasePrompt) error {
 	if err != nil {
 		return err
 	}
-	opened, err := openSecretVault(environment.Root, prompt)
+	opened, err := openSecretVault(environment.Root)
 	if err != nil {
 		return err
 	}
@@ -636,7 +634,7 @@ func runSecretLog(options *secretLogOptions) error {
 }
 
 // runSecretUnlock unlocks the vault in the broker until the broker stops.
-func runSecretUnlock(prompt passphrasePrompt) error {
+func runSecretUnlock() error {
 	ctx, cancel := commandContext()
 	defer cancel()
 	environment, err := loadEnvironment()
@@ -650,7 +648,7 @@ func runSecretUnlock(prompt passphrasePrompt) error {
 	if !client.Alive(ctx) {
 		return errors.New("the broker is not running. Run `prison up`")
 	}
-	passphrase, err := prompt("vault passphrase: ")
+	passphrase, err := promptForVaultPassphrase("vault passphrase: ")
 	if err != nil {
 		return err
 	}
@@ -721,13 +719,13 @@ func formatSecretLogStatus(status int) string {
 	return strconv.Itoa(status)
 }
 
-func openSecretVault(root *state.Root, prompt passphrasePrompt) (
+func openSecretVault(root *state.Root) (
 	*vault.Vault, error) {
 	path := root.VaultFile()
 	if !vault.Exists(path) {
 		return nil, missingSecretVaultError(path)
 	}
-	passphrase, err := prompt("vault passphrase: ")
+	passphrase, err := promptForVaultPassphrase("vault passphrase: ")
 	if err != nil {
 		return nil, err
 	}
@@ -806,37 +804,21 @@ func currentSecretProject(environment *session.Environment) (
 	return environment.Root.Project(directory)
 }
 
-func secretGrantCounts(root *state.Root) (map[string]int, error) {
+func secretGrantingProjects(root *state.Root) (map[string][]string, error) {
 	projects, err := root.ListProjects()
 	if err != nil {
 		return nil, err
 	}
-	counts := make(map[string]int)
+	granting := make(map[string][]string)
 	for _, project := range projects {
 		granted, err := project.Grants()
 		if err != nil {
 			return nil, err
 		}
 		for _, name := range granted {
-			counts[name]++
-		}
-	}
-	return counts, nil
-}
-
-func secretGrantingProjects(root *state.Root, name string) ([]string, error) {
-	projects, err := root.ListProjects()
-	if err != nil {
-		return nil, err
-	}
-	var granting []string
-	for _, project := range projects {
-		granted, err := project.Grants()
-		if err != nil {
-			return nil, err
-		}
-		if slices.Contains(granted, name) {
-			granting = append(granting, project.ID)
+			if !slices.Contains(granting[name], project.ID) {
+				granting[name] = append(granting[name], project.ID)
+			}
 		}
 	}
 	return granting, nil

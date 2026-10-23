@@ -150,40 +150,15 @@ func IsText(data []byte) bool {
 	if bytes.IndexByte(probe, 0) >= 0 {
 		return false
 	}
-	for offset := 0; offset < len(data); {
-		character, width := utf8.DecodeRune(data[offset:])
-		if character == utf8.RuneError && width <= 1 {
-			return isTruncatedRune(data[offset:])
-		}
-		offset += width
-	}
-	return true
-}
-
-func isTruncatedRune(tail []byte) bool {
-	if len(tail) == 0 || len(tail) > 3 {
-		return false
-	}
-	var wanted int
-	switch leader := tail[0]; {
-	case leader&0xE0 == 0xC0:
-		wanted = 2
-	case leader&0xF0 == 0xE0:
-		wanted = 3
-	case leader&0xF8 == 0xF0:
-		wanted = 4
-	default:
-		return false
-	}
-	if wanted <= len(tail) {
-		return false
-	}
-	for _, following := range tail[1:] {
-		if following&0xC0 != 0x80 {
-			return false
+	for back := 1; back <= min(3, len(data)); back++ {
+		if utf8.RuneStart(data[len(data)-back]) {
+			if !utf8.FullRune(data[len(data)-back:]) {
+				data = data[:len(data)-back]
+			}
+			break
 		}
 	}
-	return true
+	return utf8.Valid(data)
 }
 
 func formatManifest(manifest Manifest) []byte {

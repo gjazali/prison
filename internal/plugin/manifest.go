@@ -4,8 +4,8 @@ package plugin
 
 import (
 	"fmt"
-	"path"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -556,17 +556,7 @@ func requireDottedPath(value, key string) error {
 }
 
 func hasClimbingSegment(value string) bool {
-	for _, segment := range strings.Split(path.Clean(value), "/") {
-		if segment == ".." {
-			return true
-		}
-	}
-	for _, segment := range strings.Split(value, "/") {
-		if segment == ".." {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(strings.Split(value, "/"), "..")
 }
 
 func sortedKeys[Value any](values map[string]Value) []string {

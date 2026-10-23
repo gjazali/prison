@@ -19,7 +19,6 @@ type sentinelAllocator struct {
 	mutex         sync.Mutex
 	addressByName map[string]netip.Addr
 	nameByAddress map[netip.Addr]string
-	freeAddresses []netip.Addr
 	nextOffset    uint32
 }
 
@@ -36,20 +35,11 @@ func (a *sentinelAllocator) Allocate(name string) (netip.Addr, bool) {
 	if address, ok := a.addressByName[name]; ok {
 		return address, true
 	}
-	var address netip.Addr
-	switch {
-	case len(a.freeAddresses) > 0:
-		last := len(a.freeAddresses) - 1
-		address = a.freeAddresses[last]
-		a.freeAddresses = a.freeAddresses[:last]
-	default:
-		candidate := addressAtOffset(firstSentinel, a.nextOffset)
-		if candidate.Compare(lastSentinel) > 0 {
-			return netip.Addr{}, false
-		}
-		address = candidate
-		a.nextOffset++
+	address := addressAtOffset(firstSentinel, a.nextOffset)
+	if address.Compare(lastSentinel) > 0 {
+		return netip.Addr{}, false
 	}
+	a.nextOffset++
 	a.addressByName[name] = address
 	a.nameByAddress[address] = name
 	return address, true
@@ -60,19 +50,6 @@ func (a *sentinelAllocator) Lookup(address netip.Addr) (string, bool) {
 	defer a.mutex.Unlock()
 	name, ok := a.nameByAddress[address.Unmap()]
 	return name, ok
-}
-
-func (a *sentinelAllocator) Release(name string) bool {
-	a.mutex.Lock()
-	defer a.mutex.Unlock()
-	address, ok := a.addressByName[name]
-	if !ok {
-		return false
-	}
-	delete(a.addressByName, name)
-	delete(a.nameByAddress, address)
-	a.freeAddresses = append(a.freeAddresses, address)
-	return true
 }
 
 func addressAtOffset(base netip.Addr, offset uint32) netip.Addr {

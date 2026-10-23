@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -47,7 +48,7 @@ func TestParsePattern(t *testing.T) {
 		if got.String() != c.want || got.Wildcard != c.wildcard || got.AllPorts != c.all {
 			t.Errorf("ParsePattern(%q) = %+v, want %s", c.in, got, c.want)
 		}
-		if !c.all && strings.Join(intsToStrings(got.Ports), ",") != strings.Join(intsToStrings(c.ports), ",") {
+		if !c.all && !slices.Equal(got.Ports, c.ports) {
 			t.Errorf("ParsePattern(%q) ports = %v, want %v", c.in, got.Ports, c.ports)
 		}
 	}
@@ -99,34 +100,10 @@ func TestParseListAndUnion(t *testing.T) {
 		t.Fatalf("ParseList = %d patterns, want 3", len(patterns))
 	}
 	list := NewAllowList(patterns, DefaultFloor())
-	if got := len(list.Patterns()); got != 2+len(DefaultFloor()) {
+	if got := len(list.Strings()); got != 2+len(DefaultFloor()) {
 		t.Errorf("NewAllowList = %d patterns, want %d", got, 2+len(DefaultFloor()))
 	}
 	if _, err := ParseList(strings.NewReader("ok.com\nbad host\n")); err == nil || !strings.Contains(err.Error(), "line 2") {
 		t.Errorf("ParseList error = %v, want line 2", err)
 	}
-	ports, all := list.PortsForHost("other.org")
-	if all || len(ports) != 1 || ports[0] != 8443 {
-		t.Errorf("PortsForHost(other.org) = %v, %v, want [8443], false", ports, all)
-	}
-}
-
-func intsToStrings(values []int) []string {
-	out := make([]string, len(values))
-	for i, v := range values {
-		out[i] = strings.TrimSpace(strings.Repeat(" ", 0) + itoa(v))
-	}
-	return out
-}
-
-func itoa(v int) string {
-	if v == 0 {
-		return "0"
-	}
-	digits := ""
-	for v > 0 {
-		digits = string(rune('0'+v%10)) + digits
-		v /= 10
-	}
-	return digits
 }

@@ -72,7 +72,7 @@ func (a *Agent) SignSSHSIG(
 
 		result = &SSHSignature{
 			Armored:   armour(signatureBlob(key.Blob, namespace, signature)),
-			PublicKey: describeAgentKey(key).PublicKey,
+			PublicKey: authorizedKey(key),
 			Namespace: namespace,
 		}
 		return nil

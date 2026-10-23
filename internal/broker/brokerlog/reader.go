@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 )
 
 const maxLineBytes = 4 << 20
@@ -20,7 +19,6 @@ type Filter struct {
 	Project string
 	Secret  string
 	Inmate  string
-	Since   time.Time
 	Limit   int
 }
 
@@ -35,9 +33,6 @@ func (filter Filter) matches(entry Entry) bool {
 		return false
 	}
 	if filter.Inmate != "" && entry.Inmate != filter.Inmate {
-		return false
-	}
-	if !filter.Since.IsZero() && entry.Time.Before(filter.Since) {
 		return false
 	}
 	return true

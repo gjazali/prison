@@ -28,8 +28,6 @@ const (
 	gitModeLink       = "120000"
 )
 
-const noNewlineMarker = `\ No newline at end of file`
-
 type ReportOptions struct {
 	Full bool
 }
@@ -138,7 +136,7 @@ func WriteReport(destination io.Writer, store *Store, identifier string,
 			continue
 		}
 		lines := textdiff.Unified(previousLines, currentLines,
-			"a/"+after.Path, "b/"+after.Path, reportContextLines)
+			"a/"+after.Path, "b/"+after.Path, reportContextLines, false)
 		if len(lines) > 2 {
 			lines = lines[2:]
 		} else {
@@ -392,48 +390,8 @@ func (writer *lineWriter) unifiedFile(path string, status unifiedStatus,
 		writer.line("Binary files %s and %s differ", fromName, toName)
 		return
 	}
-	for _, line := range unifiedLines(before.lines, after.lines,
-		fromName, toName) {
+	for _, line := range textdiff.Unified(before.lines, after.lines,
+		fromName, toName, unifiedContextLines, true) {
 		writer.line("%s", line)
 	}
-}
-
-func unifiedLines(before, after []string, fromName, toName string) []string {
-	hunks := textdiff.Hunks(textdiff.Diff(before, after), unifiedContextLines)
-	if len(hunks) == 0 {
-		return nil
-	}
-	lines := []string{"--- " + fromName, "+++ " + toName}
-	for _, hunk := range hunks {
-		lines = append(lines, fmt.Sprintf("@@ -%s +%s @@",
-			hunkRange(hunk.AStart, hunk.ACount),
-			hunkRange(hunk.BStart, hunk.BCount)))
-		for _, edit := range hunk.Lines {
-			prefix := " "
-			switch edit.Op {
-			case textdiff.OpDelete:
-				prefix = "-"
-			case textdiff.OpInsert:
-				prefix = "+"
-			}
-			if strings.HasSuffix(edit.Line, "\n") {
-				lines = append(lines, prefix+strings.TrimSuffix(edit.Line, "\n"))
-				continue
-			}
-			lines = append(lines, prefix+edit.Line, noNewlineMarker)
-		}
-	}
-	return lines
-}
-
-// hunkRange follows git. An empty range starts at the line before it, so
-// its start stays zero-based.
-func hunkRange(start, count int) string {
-	switch count {
-	case 0:
-		return fmt.Sprintf("%d,0", start)
-	case 1:
-		return fmt.Sprintf("%d", start+1)
-	}
-	return fmt.Sprintf("%d,%d", start+1, count)
 }

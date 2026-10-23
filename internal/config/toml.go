@@ -4,9 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -50,12 +51,13 @@ func refuseUnknown(
 	for _, key := range metadata.Undecoded() {
 		accepted, known := schema[key[0]]
 		if !known {
+			tables := listNames(slices.Collect(maps.Keys(schema)))
 			if metadata.Type(key...) != "Hash" {
 				return fmt.Errorf("unknown key %q outside a table. %s accepts "+
-					"the tables %s", key[0], fileName, listNames(tableNames(schema)))
+					"the tables %s", key[0], fileName, tables)
 			}
 			return fmt.Errorf("unknown table [%s]. %s accepts %s",
-				key[0], fileName, listNames(tableNames(schema)))
+				key[0], fileName, tables)
 		}
 		if accepted == nil || len(key) < 2 {
 			continue
@@ -66,26 +68,6 @@ func refuseUnknown(
 	return nil
 }
 
-func tableNames(schema tableSchema) []string {
-	names := make([]string, 0, len(schema))
-	for name := range schema {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
 func listNames(names []string) string {
-	sorted := append([]string(nil), names...)
-	sort.Strings(sorted)
-	return strings.Join(sorted, ", ")
-}
-
-func sortedKeys[Value any](table map[string]Value) []string {
-	names := make([]string, 0, len(table))
-	for name := range table {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return strings.Join(slices.Sorted(slices.Values(names)), ", ")
 }

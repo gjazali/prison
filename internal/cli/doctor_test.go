@@ -43,7 +43,7 @@ func TestDoctorShortenHomeRewritesOnlyTheHomePrefix(t *testing.T) {
 	}
 }
 
-func TestDoctorListenerTextReportsBoundState(t *testing.T) {
+func TestDescribeListenerReportsBoundState(t *testing.T) {
 	cases := []struct {
 		listener control.Listener
 		want     string
@@ -64,8 +64,8 @@ func TestDoctorListenerTextReportsBoundState(t *testing.T) {
 		},
 	}
 	for _, testCase := range cases {
-		if got := doctorListenerText(testCase.listener); got != testCase.want {
-			t.Errorf("doctorListenerText = %q, want %q", got, testCase.want)
+		if got := describeListener(testCase.listener); got != testCase.want {
+			t.Errorf("describeListener = %q, want %q", got, testCase.want)
 		}
 	}
 }

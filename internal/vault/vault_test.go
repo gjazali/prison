@@ -301,14 +301,8 @@ func TestReloadSeesExternalWrite(t *testing.T) {
 	if _, found := first.Secret("alpha"); !found {
 		t.Fatal("Secret(alpha) = false, want true")
 	}
-	if err := first.Reload(); err != nil {
-		t.Fatalf("Reload: %v", err)
-	}
 	if err := os.Remove(path); err != nil {
 		t.Fatalf("Remove: %v", err)
-	}
-	if err := first.Reload(); err == nil {
-		t.Fatal("Reload = nil, want an error")
 	}
 	if secrets := first.Secrets(); len(secrets) != 0 {
 		t.Fatalf("len(Secrets) = %d, want 0",
@@ -319,9 +313,6 @@ func TestReloadSeesExternalWrite(t *testing.T) {
 func TestLock(t *testing.T) {
 	vault, _ := newTestVault(t)
 	vault.Lock()
-	if err := vault.Reload(); !errors.Is(err, ErrLocked) {
-		t.Fatalf("Reload = %v, want ErrLocked", err)
-	}
 	_, err := vault.PutSecret(exposeSecret("alpha"))
 	if !errors.Is(err, ErrLocked) {
 		t.Fatalf("PutSecret = %v, want ErrLocked", err)
@@ -377,8 +368,8 @@ func TestConcurrentReadersDuringExternalWrites(t *testing.T) {
 	close(stop)
 	group.Wait()
 
-	if err := reader.Reload(); err != nil {
-		t.Fatalf("Reload: %v", err)
+	if _, found := reader.Secret("local"); !found {
+		t.Fatal("Secret(local) = false, want true")
 	}
 	if _, err := Open(path, testPassphrase); err != nil {
 		t.Fatalf("Open: %v", err)

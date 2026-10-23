@@ -18,8 +18,14 @@ const contextDirectoryMode = 0o755
 // no modes. Dockerfiles set other modes with `COPY --chmod`.
 const contextFileMode = 0o644
 
+type imageBuilder interface {
+	ImageExists(ctx context.Context, tag string) (bool, error)
+	Build(ctx context.Context, spec isolator.BuildSpec) error
+	ReleaseBuilder(ctx context.Context) error
+}
+
 func Ensure(
-	ctx context.Context, c isolator.Isolator, plan *Plan, out io.Writer,
+	ctx context.Context, c imageBuilder, plan *Plan, out io.Writer,
 ) error {
 	if out == nil {
 		out = io.Discard
@@ -54,7 +60,7 @@ func Ensure(
 
 // releaseBuilder ignores cancellation so that an interrupted build still
 // releases the builder.
-func releaseBuilder(ctx context.Context, c isolator.Isolator, out io.Writer) {
+func releaseBuilder(ctx context.Context, c imageBuilder, out io.Writer) {
 	err := c.ReleaseBuilder(context.WithoutCancel(ctx))
 	if err != nil {
 		fmt.Fprintf(out, "note      cannot stop the image builder: %v\n", err)
@@ -62,7 +68,7 @@ func releaseBuilder(ctx context.Context, c isolator.Isolator, out io.Writer) {
 }
 
 func buildStep(
-	ctx context.Context, c isolator.Isolator, step Step, out io.Writer,
+	ctx context.Context, c imageBuilder, step Step, out io.Writer,
 ) error {
 	directory, err := os.MkdirTemp("", "prison-build-")
 	if err != nil {
