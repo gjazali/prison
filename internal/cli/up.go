@@ -21,7 +21,7 @@ func addUpCommand(root *cobra.Command) {
 	root.AddCommand(&cobra.Command{
 		Use:   "up",
 		Short: "create or start this project's box",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runUp()
 		},
@@ -127,7 +127,7 @@ func addSetupCommand(root *cobra.Command) {
 	command := &cobra.Command{
 		Use:   "setup",
 		Short: "install this project's dependencies in the box",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			ctx, cancel := commandContext()
 			defer cancel()

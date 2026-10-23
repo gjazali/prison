@@ -397,7 +397,7 @@ func TestRemoveCommandSequence(t *testing.T) {
 
 	runner := newRecordingRunner()
 	runner.replies["sudo cat "+p.daemonMarkerFile] = "77\n"
-	if err := pfRemove(ctx, stagingDir, p, runner.run, &strings.Builder{}); err != nil {
+	if err := pfRemove(ctx, stagingDir, p, runner.run); err != nil {
 		t.Fatalf("pfRemove error = %v, want nil", err)
 	}
 
@@ -434,8 +434,8 @@ func TestRemoveWithNothingInstalled(t *testing.T) {
 
 	runner := newRecordingRunner()
 	runner.failures["sudo cat "+p.daemonMarkerFile] = true
-	if err := pfRemove(context.Background(), stagingDir, p, runner.run,
-		&strings.Builder{}); err != nil {
+	if err := pfRemove(context.Background(), stagingDir, p,
+		runner.run); err != nil {
 		t.Fatalf("pfRemove error = %v, want nil", err)
 	}
 	checkCommands(t, runner.commands, []string{
@@ -449,7 +449,7 @@ func TestRemoveWithNothingInstalled(t *testing.T) {
 	})
 }
 
-func TestRemoveWarnsWhenTheMainRulesetCannotBeWritten(t *testing.T) {
+func TestRemoveFailsWhenTheMainRulesetCannotBeWritten(t *testing.T) {
 	p := newTestPaths(t)
 	stagingDir := t.TempDir()
 	installEverything(t, ipv4Spec, p)
@@ -458,12 +458,47 @@ func TestRemoveWarnsWhenTheMainRulesetCannotBeWritten(t *testing.T) {
 	confPath := filepath.Join(stagingDir, StagedConfName)
 	runner.failures["sudo install -m 0644 -o root -g wheel "+confPath+" "+
 		p.mainRuleset] = true
-	var out strings.Builder
-	if err := pfRemove(context.Background(), stagingDir, p, runner.run, &out); err != nil {
-		t.Fatalf("pfRemove error = %v, want nil", err)
+	err := pfRemove(context.Background(), stagingDir, p, runner.run)
+	if err == nil || !strings.Contains(err.Error(), p.mainRuleset) {
+		t.Errorf("pfRemove error = %v, want one that names %s",
+			err, p.mainRuleset)
 	}
-	if !strings.Contains(out.String(), "cannot remove the prison lines") {
-		t.Errorf("output = %q, want a warning", out.String())
+}
+
+func TestRemoveFailsWhenTheReloadFails(t *testing.T) {
+	p := newTestPaths(t)
+	installEverything(t, ipv4Spec, p)
+
+	runner := newRecordingRunner()
+	reload := "sudo pfctl -f " + p.mainRuleset
+	runner.failures[reload] = true
+	runner.replies[reload] = "pfctl: Syntax error in config file"
+	err := pfRemove(context.Background(), t.TempDir(), p, runner.run)
+	if err == nil || !strings.Contains(err.Error(), "Syntax error") {
+		t.Errorf("pfRemove error = %v, want the pfctl output", err)
+	}
+}
+
+func TestRemoveAcceptsWhatIsAlreadyGone(t *testing.T) {
+	p := newTestPaths(t)
+	stagingDir := t.TempDir()
+	installEverything(t, ipv4Spec, p)
+	writeFile(t, filepath.Join(stagingDir, EnableTokenName), "4242\n")
+
+	runner := newRecordingRunner()
+	for command, output := range map[string]string{
+		"sudo launchctl bootout system/prison.firewall": "Boot-out failed: " +
+			"3: No such process",
+		"sudo pfctl -a prison -F rules": "pfctl: Anchor or Ruleset does " +
+			"not exist.",
+		"sudo pfctl -X 4242": "pf: token invalid",
+	} {
+		runner.failures[command] = true
+		runner.replies[command] = output
+	}
+	if err := pfRemove(context.Background(), stagingDir, p,
+		runner.run); err != nil {
+		t.Errorf("pfRemove error = %v, want nil", err)
 	}
 }
 
@@ -516,8 +551,7 @@ func TestUnsupportedHost(t *testing.T) {
 		&strings.Builder{}); err == nil {
 		t.Error("Install error = nil, want an error")
 	}
-	if err := Remove(ctx, ipv4Spec, t.TempDir(), runner.run,
-		&strings.Builder{}); err == nil {
+	if err := Remove(ctx, t.TempDir(), runner.run); err == nil {
 		t.Error("Remove error = nil, want an error")
 	}
 	if len(runner.commands) != 0 {

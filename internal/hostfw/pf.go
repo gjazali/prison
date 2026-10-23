@@ -319,16 +319,24 @@ func holdEnableReference(ctx context.Context, stagingDir string, run Runner) err
 	return nil
 }
 
-func pfRemove(ctx context.Context, stagingDir string, p paths, run Runner, out io.Writer) error {
+func pfRemove(ctx context.Context, stagingDir string, p paths,
+	run Runner) error {
 	bootTokenOutput, err := run(ctx, "sudo", "cat", p.daemonMarkerFile)
 	bootToken := ""
 	if err == nil {
 		bootToken = strings.TrimSpace(bootTokenOutput)
 	}
 
-	run(ctx, "sudo", "launchctl", "bootout", "system/"+DaemonLabel)
+	if err := runRemoval(ctx, run, "No such process", "sudo", "launchctl",
+		"bootout", "system/"+DaemonLabel); err != nil {
+		return err
+	}
+	// launchctl unload exits 0 even when it fails.
 	run(ctx, "sudo", "launchctl", "unload", "-w", p.daemonFile)
-	run(ctx, "sudo", "rm", "-f", p.daemonFile, p.daemonMarkerFile)
+	if err := runRemoval(ctx, run, "", "sudo", "rm", "-f", p.daemonFile,
+		p.daemonMarkerFile); err != nil {
+		return err
+	}
 
 	ruleset, err := readMainRuleset(p)
 	if err != nil {
@@ -341,14 +349,21 @@ func pfRemove(ctx context.Context, stagingDir string, p paths, run Runner, out i
 			return err
 		}
 		if err := installAsRoot(ctx, run, confPath, p.mainRuleset); err != nil {
-			fmt.Fprintf(out, "warn: cannot remove the prison lines from %s.\n",
-				p.mainRuleset)
+			return err
 		}
 	}
-	run(ctx, "sudo", "rm", "-f", p.anchorFile)
-
-	run(ctx, "sudo", "pfctl", "-a", AnchorName, "-F", "rules")
-	run(ctx, "sudo", "pfctl", "-f", p.mainRuleset)
+	if err := runRemoval(ctx, run, "", "sudo", "rm", "-f",
+		p.anchorFile); err != nil {
+		return err
+	}
+	if err := runRemoval(ctx, run, "Anchor or Ruleset does not exist",
+		"sudo", "pfctl", "-a", AnchorName, "-F", "rules"); err != nil {
+		return err
+	}
+	if err := runRemoval(ctx, run, "", "sudo", "pfctl", "-f",
+		p.mainRuleset); err != nil {
+		return err
+	}
 
 	tokenPath := filepath.Join(stagingDir, EnableTokenName)
 	held, _ := os.ReadFile(tokenPath)
@@ -357,7 +372,11 @@ func pfRemove(ctx context.Context, stagingDir string, p paths, run Runner, out i
 		if token == "" {
 			continue
 		}
-		run(ctx, "sudo", "pfctl", "-X", token)
+		// pf forgets its tokens at reboot.
+		if err := runRemoval(ctx, run, "token invalid", "sudo", "pfctl", "-X",
+			token); err != nil {
+			return err
+		}
 	}
 	if err := os.Remove(tokenPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("cannot remove %s: %w", tokenPath, err)

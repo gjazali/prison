@@ -2,13 +2,16 @@ package plugin
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
 )
 
-var ignoredTreeNames = map[string]bool{
+// IgnoredTreeNames also stay out of the build context, so that the approval
+// covers all of it.
+var IgnoredTreeNames = map[string]bool{
 	".git":         true,
 	".DS_Store":    true,
 	"__pycache__":  true,
@@ -24,7 +27,7 @@ func TreeHash(fsys fs.FS) (string, error) {
 		if name == "." {
 			return nil
 		}
-		if ignoredTreeNames[entry.Name()] {
+		if IgnoredTreeNames[entry.Name()] {
 			if entry.IsDir() {
 				return fs.SkipDir
 			}
@@ -37,18 +40,19 @@ func TreeHash(fsys fs.FS) (string, error) {
 		if err != nil {
 			return fmt.Errorf("cannot read %s: %w", name, err)
 		}
-		digest.Write([]byte(name))
+		writeFramed(digest, []byte(name))
 		if info.Mode().Perm()&0o100 != 0 {
-			digest.Write([]byte{1})
+			writeFramed(digest, []byte{1})
 		} else {
-			digest.Write([]byte{0})
+			writeFramed(digest, []byte{0})
 		}
 		if info.Mode()&fs.ModeSymlink != 0 {
 			target, err := fs.ReadLink(fsys, name)
 			if err != nil {
 				return fmt.Errorf("cannot read the symlink %s: %w", name, err)
 			}
-			digest.Write([]byte(target))
+			writeFramed(digest, []byte{'l'})
+			writeFramed(digest, []byte(target))
 			return nil
 		}
 		if !info.Mode().IsRegular() {
@@ -58,13 +62,19 @@ func TreeHash(fsys fs.FS) (string, error) {
 		if err != nil {
 			return err
 		}
-		digest.Write(contents)
+		writeFramed(digest, []byte{'f'})
+		writeFramed(digest, contents)
 		return nil
 	})
 	if walkError != nil {
 		return "", walkError
 	}
 	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+func writeFramed(digest io.Writer, part []byte) {
+	binary.Write(digest, binary.BigEndian, uint64(len(part)))
+	digest.Write(part)
 }
 
 func hashFile(fsys fs.FS, name string) ([]byte, error) {
@@ -89,7 +99,7 @@ func TreeFiles(fsys fs.FS) ([]string, error) {
 		if name == "." {
 			return nil
 		}
-		if ignoredTreeNames[entry.Name()] {
+		if IgnoredTreeNames[entry.Name()] {
 			if entry.IsDir() {
 				return fs.SkipDir
 			}

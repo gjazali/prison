@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -23,6 +24,10 @@ import (
 )
 
 const sudoersPath = "/etc/sudoers.d/prison"
+
+// childStopTimeout stays below the host stop timeout so that `powerOff` will
+// sync the workspace.
+const childStopTimeout = 10 * time.Second
 
 func runInit(arguments []string, logger *log.Logger) int {
 	// Subscribe before any fork so that no `SIGCHLD` is lost.
@@ -171,6 +176,7 @@ func supervise(command []string, dev devIdentity, runner *commandRunner,
 	signals <-chan os.Signal, fatal <-chan error,
 	brokerAnswered <-chan struct{}, logger *log.Logger) int {
 	var child *exec.Cmd
+	var forceKill <-chan time.Time
 	for {
 		select {
 		case <-brokerAnswered:
@@ -198,6 +204,14 @@ func supervise(command []string, dev devIdentity, runner *commandRunner,
 			}
 			if err := child.Process.Signal(received); err != nil {
 				logger.Printf("cannot forward %s: %v", received, err)
+			}
+			if unixSignal == unix.SIGTERM && forceKill == nil {
+				forceKill = time.After(childStopTimeout)
+			}
+		case <-forceKill:
+			forceKill = nil
+			if err := child.Process.Kill(); err != nil {
+				logger.Printf("cannot kill %q: %v", command, err)
 			}
 		case err := <-fatal:
 			logger.Printf("stopping the box: %v", err)

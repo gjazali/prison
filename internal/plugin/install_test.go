@@ -170,6 +170,34 @@ func TestUpdateReplacesWhatChanged(t *testing.T) {
 	}
 }
 
+func TestFailedCopyKeepsTheInstalledPlugin(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read a file without permissions")
+	}
+	root := t.TempDir()
+	installed := filepath.Join(root, "inmates", "codex")
+	write(t, filepath.Join(installed, "Dockerfile"), "FROM old\n")
+	source := filepath.Join(root, "source")
+	write(t, filepath.Join(source, "Dockerfile"), "FROM new\n")
+	unreadable := filepath.Join(source, "secret")
+	write(t, unreadable, "")
+	if err := os.Chmod(unreadable, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyPluginTree(source, installed); err == nil {
+		t.Fatal("copyPluginTree error = nil, want an error")
+	}
+	data, err := os.ReadFile(filepath.Join(installed, "Dockerfile"))
+	if err != nil || string(data) != "FROM old\n" {
+		t.Errorf("Dockerfile = %q, %v, want \"FROM old\\n\"", data, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(installed))
+	if err != nil || len(entries) != 1 {
+		t.Errorf("install directory = %v, %v, want only codex", entries, err)
+	}
+}
+
 func TestTrustReapprovesAChangedInmate(t *testing.T) {
 	requireGit(t)
 	registry, _, _ := testRegistry(t)

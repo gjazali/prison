@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"prison/internal/isolator"
 	"prison/internal/checkpoint"
 	"prison/internal/config"
+	"prison/internal/isolator"
 	"prison/internal/session"
 	"prison/internal/state"
 	"prison/internal/ui"
@@ -39,7 +39,7 @@ func newDownCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "down [box]",
 		Short: "stop a box",
-		Args: cobra.MaximumNArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runDown(optionalBoxArgument(arguments))
 		},
@@ -52,7 +52,7 @@ func newRemoveCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "rm [box]",
 		Short: "remove a box and keep its state",
-		Args: cobra.MaximumNArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runRemove(
 				optionalBoxArgument(arguments), removesState, assumeYes)
@@ -70,7 +70,7 @@ func newListCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "list boxes and their projects",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runList(command, stateListing)
 		},
@@ -84,7 +84,7 @@ func newStatusCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "show the state of this project",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runStatus(command)
 		},
@@ -95,7 +95,7 @@ func newPortsCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "ports",
 		Short: "show the published ports of this box",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runPorts()
 		},

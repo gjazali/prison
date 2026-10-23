@@ -2,6 +2,7 @@ package brokerlog
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -63,25 +64,37 @@ func (writer *Writer) Write(entry Entry) error {
 	if writer.file == nil {
 		return fmt.Errorf("the broker log %s is closed", writer.path)
 	}
+	var rotateErr error
 	if writer.size > 0 && writer.size+int64(len(line)) > writer.maxBytes {
-		if err := writer.rotate(); err != nil {
-			return err
+		rotateErr = writer.rotate()
+		if writer.file == nil {
+			return rotateErr
 		}
 	}
 	written, err := writer.file.Write(line)
 	writer.size += int64(written)
 	if err != nil {
-		return fmt.Errorf("cannot write to the broker log %s: %w", writer.path, err)
+		return errors.Join(rotateErr,
+			fmt.Errorf("cannot write to the broker log %s: %w", writer.path, err))
 	}
-	return nil
+	return rotateErr
 }
 
 // rotate requires the mutex.
 func (writer *Writer) rotate() error {
-	if err := writer.file.Close(); err != nil {
+	err := writer.shiftFiles()
+	if openErr := writer.open(); openErr != nil {
+		return errors.Join(err, openErr)
+	}
+	return err
+}
+
+func (writer *Writer) shiftFiles() error {
+	err := writer.file.Close()
+	writer.file = nil
+	if err != nil {
 		return fmt.Errorf("cannot close the broker log %s: %w", writer.path, err)
 	}
-	writer.file = nil
 	oldest := rotatedPath(writer.path, writer.keep)
 	if err := os.Remove(oldest); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("cannot remove the oldest broker log %s: %w", oldest, err)
@@ -96,7 +109,7 @@ func (writer *Writer) rotate() error {
 	if err := os.Rename(writer.path, rotatedPath(writer.path, 1)); err != nil {
 		return fmt.Errorf("cannot rotate the broker log %s: %w", writer.path, err)
 	}
-	return writer.open()
+	return nil
 }
 
 func (writer *Writer) Close() error {

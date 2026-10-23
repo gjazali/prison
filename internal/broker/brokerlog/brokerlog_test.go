@@ -271,3 +271,34 @@ func TestOpenWriterDefaults(t *testing.T) {
 		t.Error("opening a log under a missing directory succeeded")
 	}
 }
+
+func TestWriteContinuesAfterFailedRotation(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "broker.log")
+	blocker := filepath.Join(directory, "broker.log.1", "blocker")
+	if err := os.MkdirAll(blocker, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	writer, err := OpenWriter(path, 200, 1)
+	if err != nil {
+		t.Fatalf("OpenWriter: %v", err)
+	}
+	defer writer.Close()
+	const count = 12
+	failures := 0
+	for index := 0; index < count; index++ {
+		if err := writer.Write(Entry{Kind: KindEgress}); err != nil {
+			failures++
+		}
+	}
+	if failures == 0 {
+		t.Fatal("Write failures = 0, want rotation errors")
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if lines := strings.Count(string(contents), "\n"); lines != count {
+		t.Errorf("lines = %d, want %d", lines, count)
+	}
+}

@@ -30,7 +30,7 @@ func newShellCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "shell",
 		Short: "open a login shell in this project's box",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runShell()
 		},
@@ -41,7 +41,7 @@ func newRunCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "run <command...>",
 		Short: "run a command in this project's box",
-		Args: cobra.MinimumNArgs(1),
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runRun(arguments)
 		},

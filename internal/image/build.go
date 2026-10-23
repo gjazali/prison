@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"prison/internal/isolator"
+	"prison/internal/plugin"
 )
 
 const contextDirectoryMode = 0o755
@@ -97,6 +98,12 @@ func ExtractFS(source fs.FS, destination string) error {
 			return err
 		}
 		if name == "." {
+			return nil
+		}
+		if plugin.IgnoredTreeNames[entry.Name()] {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
 			return nil
 		}
 		target := filepath.Join(destination, filepath.FromSlash(name))

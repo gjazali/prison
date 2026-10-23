@@ -90,3 +90,45 @@ func TestNftInstallStopsWhenTheRulesDoNotParse(t *testing.T) {
 			err, len(runner.commands))
 	}
 }
+
+func TestNftRemoveCommandSequence(t *testing.T) {
+	p := newNftTestPaths(t)
+	runner := newRecordingRunner()
+	if err := nftRemove(context.Background(), p, runner.run); err != nil {
+		t.Fatalf("nftRemove error = %v, want nil", err)
+	}
+	checkCommands(t, runner.commands, []string{
+		"sudo systemctl disable --now " + nftUnitName,
+		"sudo rm -f " + p.unitFile + " " + p.rulesFile,
+		"sudo systemctl daemon-reload",
+		"sudo nft delete table inet prison",
+	})
+}
+
+func TestNftRemoveFailsWhenACommandFails(t *testing.T) {
+	p := newNftTestPaths(t)
+	runner := newRecordingRunner()
+	runner.failures["sudo nft delete table inet prison"] = true
+	runner.replies["sudo nft delete table inet prison"] =
+		"Error: Operation not permitted"
+	err := nftRemove(context.Background(), p, runner.run)
+	if err == nil || !strings.Contains(err.Error(), "not permitted") {
+		t.Errorf("nftRemove error = %v, want the nft output", err)
+	}
+}
+
+func TestNftRemoveAcceptsWhatIsAlreadyGone(t *testing.T) {
+	p := newNftTestPaths(t)
+	runner := newRecordingRunner()
+	disable := "sudo systemctl disable --now " + nftUnitName
+	runner.failures[disable] = true
+	runner.replies[disable] = "Failed to disable unit: Unit file " +
+		nftUnitName + " does not exist."
+	deleteTable := "sudo nft delete table inet prison"
+	runner.failures[deleteTable] = true
+	runner.replies[deleteTable] = "Error: Could not process rule: " +
+		"No such file or directory"
+	if err := nftRemove(context.Background(), p, runner.run); err != nil {
+		t.Errorf("nftRemove error = %v, want nil", err)
+	}
+}

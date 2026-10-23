@@ -232,18 +232,40 @@ func clonePlugin(ctx context.Context, url, ref, destination string) error {
 	return nil
 }
 
+// copyPluginTree stages the copy in a directory that the registry will
+// ignore if it is left over.
 func copyPluginTree(source, destination string) error {
-	if err := os.RemoveAll(destination); err != nil {
-		return fmt.Errorf("cannot remove %s: %w", destination, err)
+	parent := filepath.Dir(destination)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return fmt.Errorf("cannot create %s: %w", parent, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return fmt.Errorf("cannot create %s: %w", filepath.Dir(destination), err)
+	staging, err := os.MkdirTemp(parent, ".install-")
+	if err != nil {
+		return fmt.Errorf("cannot create a directory in %s: %w", parent, err)
 	}
+	defer os.RemoveAll(staging)
+	copied := filepath.Join(staging, "new")
+	if err := copyTree(source, copied); err != nil {
+		return err
+	}
+	retired := filepath.Join(staging, "old")
+	err = os.Rename(destination, retired)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("cannot replace %s: %w", destination, err)
+	}
+	if err := os.Rename(copied, destination); err != nil {
+		os.Rename(retired, destination)
+		return fmt.Errorf("cannot replace %s: %w", destination, err)
+	}
+	return nil
+}
+
+func copyTree(source, destination string) error {
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if ignoredTreeNames[entry.Name()] {
+		if IgnoredTreeNames[entry.Name()] {
 			if entry.IsDir() {
 				return fs.SkipDir
 			}

@@ -193,9 +193,7 @@ func (broker *Broker) handleLog(w http.ResponseWriter, r *http.Request) {
 
 func (broker *Broker) handlePublish(w http.ResponseWriter, r *http.Request) {
 	var request control.PublishRequest
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		relay.WriteError(w, http.StatusBadRequest,
-			"the publish request is not valid JSON")
+	if !decodeJSONBody(w, r, &request) {
 		return
 	}
 	if err := broker.forwards.publish(r.PathValue("box"), request); err != nil {

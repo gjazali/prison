@@ -78,6 +78,19 @@ func TestTreeHashNoticesChanges(t *testing.T) {
 	}
 }
 
+func TestTreeHashSeparatesParts(t *testing.T) {
+	twoLinks := fstest.MapFS{
+		"a": &fstest.MapFile{Mode: fs.ModeSymlink},
+		"b": &fstest.MapFile{Mode: fs.ModeSymlink},
+	}
+	oneLink := fstest.MapFS{
+		"a": &fstest.MapFile{Data: []byte("b\x00"), Mode: fs.ModeSymlink},
+	}
+	if hashOf(t, twoLinks) == hashOf(t, oneLink) {
+		t.Error("TreeHash of two different trees = the same hash")
+	}
+}
+
 func TestTreeFilesListsWhatIsHashed(t *testing.T) {
 	files, err := TreeFiles(pluginTree())
 	if err != nil {

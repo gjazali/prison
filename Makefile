@@ -49,10 +49,9 @@ test-isolator: build
 		./internal/hostfw/... -run Integration -v
 
 lint:
-	@test -z "$$(gofmt -l . | grep -v '^legacy/' | grep -v '^spikes/')" \
-		|| (gofmt -l . | grep -v '^legacy/' | grep -v '^spikes/'; exit 1)
+	@test -z "$$(gofmt -l .)" || (gofmt -l .; exit 1)
 	go vet ./...
-	@command -v staticcheck >/dev/null && staticcheck ./... || true
+	@if command -v staticcheck >/dev/null; then staticcheck ./...; fi
 
 install: build
 	install -m 0755 bin/prison /usr/local/bin/prison

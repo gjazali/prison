@@ -33,7 +33,7 @@ func addBrokerCommands(root *cobra.Command) {
 	group := &cobra.Command{
 		Use:   "broker",
 		Short: "manage the credential broker",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runBrokerStatus(command)
 		},
@@ -62,7 +62,7 @@ func newBrokerStopCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop",
 		Short: "stop the broker",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runBrokerStop(command)
 		},
@@ -76,7 +76,7 @@ func newBrokerLogCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "log",
 		Short: "show the broker request log",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runBrokerLog(command, kind, projectID, limit)
 		},

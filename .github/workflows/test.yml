@@ -46,7 +46,7 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make guest
-      - run: go vet ./...
+      - run: make lint
       - run: go test ./...
 
   isolator:

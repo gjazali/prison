@@ -14,7 +14,7 @@ func addBuildCommand(root *cobra.Command) {
 	root.AddCommand(&cobra.Command{
 		Use:   "build",
 		Short: "build this project's image chain",
-		Args: cobra.NoArgs,
+		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runBuild(command)
 		},

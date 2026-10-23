@@ -281,6 +281,10 @@ func TestExtractFSRoundTrip(t *testing.T) {
 		"scripts/setup.sh": &fstest.MapFile{Data: []byte("#!/bin/sh\n")},
 		"a/b/c/deep.txt":   &fstest.MapFile{Data: []byte("deep")},
 		"empty":            &fstest.MapFile{Data: []byte{}},
+		".DS_Store":        &fstest.MapFile{Data: []byte("junk")},
+		".git/config":      &fstest.MapFile{Data: []byte("[core]\n")},
+		"a/__pycache__/x":  &fstest.MapFile{Data: []byte("bytes")},
+		"node_modules/x":   &fstest.MapFile{Data: []byte("pad")},
 	}
 	destination := filepath.Join(t.TempDir(), "context")
 	if err := ExtractFS(source, destination); err != nil {

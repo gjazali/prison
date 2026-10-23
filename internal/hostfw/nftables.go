@@ -144,9 +144,22 @@ func nftInstall(ctx context.Context, spec Spec, stagingDir string,
 }
 
 func nftRemove(ctx context.Context, p nftPaths, run Runner) error {
-	run(ctx, "sudo", "systemctl", "disable", "--now", nftUnitName)
-	run(ctx, "sudo", "rm", "-f", p.unitFile, p.rulesFile)
-	run(ctx, "sudo", "systemctl", "daemon-reload")
-	run(ctx, "sudo", "nft", "delete", "table", "inet", nftTableName)
+	steps := []struct {
+		absentText string
+		command    []string
+	}{
+		{nftUnitName + " does not exist",
+			[]string{"sudo", "systemctl", "disable", "--now", nftUnitName}},
+		{"", []string{"sudo", "rm", "-f", p.unitFile, p.rulesFile}},
+		{"", []string{"sudo", "systemctl", "daemon-reload"}},
+		{"No such file or directory",
+			[]string{"sudo", "nft", "delete", "table", "inet", nftTableName}},
+	}
+	for _, step := range steps {
+		if err := runRemoval(ctx, run, step.absentText,
+			step.command...); err != nil {
+			return err
+		}
+	}
 	return nil
 }

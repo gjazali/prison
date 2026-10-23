@@ -78,7 +78,7 @@ func runHostFirewall(command *cobra.Command, removeRules bool) error {
 	}
 	ui.Progress("the rules are %s", hostFirewallStateText(state))
 	if removeRules {
-		return removeHostFirewall(command, spec, stagingDirectory, state)
+		return removeHostFirewall(command, stagingDirectory, state)
 	}
 	return installHostFirewall(command, spec, stagingDirectory)
 }
@@ -103,8 +103,8 @@ func installHostFirewall(command *cobra.Command, spec hostfw.Spec,
 	return nil
 }
 
-func removeHostFirewall(command *cobra.Command, spec hostfw.Spec,
-	stagingDirectory string, state hostfw.State) error {
+func removeHostFirewall(command *cobra.Command, stagingDirectory string,
+	state hostfw.State) error {
 	ctx, cancel := commandContext()
 	defer cancel()
 	if state == hostfw.StateMissing {
@@ -114,8 +114,8 @@ func removeHostFirewall(command *cobra.Command, spec hostfw.Spec,
 	if !ui.Confirm("remove the rules with sudo?") {
 		return ui.Exit(1, "canceled")
 	}
-	if err := hostfw.Remove(ctx, spec, stagingDirectory,
-		hostfw.SystemRunner, os.Stderr); err != nil {
+	err := hostfw.Remove(ctx, stagingDirectory, hostfw.SystemRunner)
+	if err != nil {
 		return err
 	}
 	ui.Progress("done")

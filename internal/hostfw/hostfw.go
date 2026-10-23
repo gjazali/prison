@@ -138,13 +138,23 @@ func Install(ctx context.Context, spec Spec, stagingDir string, run Runner, out 
 	return pfInstall(ctx, spec, stagingDir, systemPaths(), run, out)
 }
 
-// Remove writes nonfatal failures to `out` as warnings.
-func Remove(ctx context.Context, spec Spec, stagingDir string, run Runner, out io.Writer) error {
+func Remove(ctx context.Context, stagingDir string, run Runner) error {
 	if !isSupportedOperatingSystem() {
 		return unsupportedError()
 	}
 	if runtime.GOOS == "linux" {
 		return nftRemove(ctx, nftSystemPaths(), run)
 	}
-	return pfRemove(ctx, stagingDir, systemPaths(), run, out)
+	return pfRemove(ctx, stagingDir, systemPaths(), run)
+}
+
+func runRemoval(ctx context.Context, run Runner, absentText string,
+	command ...string) error {
+	output, err := run(ctx, command[0], command[1:]...)
+	if err == nil ||
+		(absentText != "" && strings.Contains(output, absentText)) {
+		return nil
+	}
+	return fmt.Errorf("`%s` failed: %w: %s", strings.Join(command, " "),
+		err, strings.TrimSpace(output))
 }

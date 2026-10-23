@@ -160,9 +160,10 @@ func (session *hostExecSession) receive(ctx context.Context, box string,
 }
 
 func terminalSize(stdin io.Reader) (int, int) {
+	// The console pty keeps the size from when it opened.
 	candidates := []*os.File{os.Stdout}
 	if file, isFile := stdin.(*os.File); isFile {
-		candidates = append([]*os.File{file}, candidates...)
+		candidates = append(candidates, file)
 	}
 	for _, file := range candidates {
 		columns, rows, err := term.GetSize(int(file.Fd()))
