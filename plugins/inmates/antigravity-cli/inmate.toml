@@ -1,6 +1,6 @@
 [inmate]
 name = "antigravity-cli"
-description = "Antigravity CLI, Google's terminal coding agent"
+description = "antigravity.google"
 aliases = ["agy"]
 
 [image]
