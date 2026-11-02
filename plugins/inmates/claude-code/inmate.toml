@@ -1,6 +1,7 @@
 [inmate]
-name = "claude"
-description = "Claude Code, Anthropic's CLI"
+name = "claude-code"
+description = "claude.ai"
+aliases = ["claude"]
 
 [image]
 dockerfile = "Dockerfile"

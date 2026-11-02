@@ -19,7 +19,7 @@ The global config accepts:
 
 ```toml
 [prison]
-inmates = ["claude"]     # Which tools should be included in every box
+inmates = ["claude-code"] # Which tools should be included in every box
 
 [checkpoint]
 pager = "less -R"        # The program used for long diffs
@@ -30,7 +30,7 @@ While the local config accepts:
 
 ```toml
 [prison]
-inmates = ["claude"] # The inmates that are installed in the Prison box
+inmates = ["claude-code"] # The inmates that are installed in the Prison box
 
 [box]
 cpus = 4             # The number of CPUs to use
@@ -296,7 +296,7 @@ box      example-4d4e34b88286.prison
 state    /Users/you/.prison/projects/4d4e34b88286
 network  prison
 sudo     no
-inmates  claude
+inmates  claude-code
 secrets  none
 status   absent
 ```

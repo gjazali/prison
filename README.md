@@ -76,7 +76,7 @@ to control Prison's behavior for that project specifically:
 
 ```toml
 [prison]
-inmates = ["claude"] # The inmates that are installed in the Prison box
+inmates = ["claude-code"] # The inmates that are installed in the Prison box
 
 [box]
 sudo = false         # Whether or not root access inside the box will be allowed; you'll need this if you want to use `apt install` inside the box
@@ -181,11 +181,15 @@ prison up
 prison claude
 </pre>
 
-`CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) is defined by
-`prison inmate show claude` as the environment variables for the credentials.
+The Inmate name is `claude-code`, with `claude` as its alias.
 
-The `unsafe-command` variant of `claude` (claude --dangerously-skip-permissions)
-can be triggered through `prison claude --yolo`.
+`CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) is defined by
+`prison inmate show claude-code` as the environment variables for the
+credentials.
+
+The `unsafe-command` variant of `claude-code`
+(claude --dangerously-skip-permissions) can be triggered through
+`prison claude --yolo`.
 
 ### Managing Prison Boxes
 
