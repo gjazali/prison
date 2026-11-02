@@ -454,10 +454,7 @@ func writeAppliedPlan(out *lineWriter, result MergeResult,
 	}
 	if result.Conflicted > 0 {
 		out.line("")
-		out.line("Conflicted files have markers. Local lines come after " +
-			"`<<<<<<<`,")
-		out.line("the base after `|||||||`, and the checkpoint after `=======`.")
-		out.line("Edit the files to remove the markers.")
+		out.line("Edit the files to remove the conflict markers.")
 	}
 	out.line("")
 	out.line("checkpoint %s is the tree from before this %s.",

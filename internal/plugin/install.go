@@ -359,7 +359,7 @@ func hostSummary(manifest *Manifest) []string {
 	host := manifest.Host
 	var lines []string
 	if len(host.Copy) > 0 {
-		lines = append(lines, fmt.Sprintf("copies %s from %s into the persisted home",
+		lines = append(lines, fmt.Sprintf("copies %s from %s",
 			strings.Join(host.Copy, ", "), host.Root))
 	}
 	var edited []string
@@ -369,7 +369,7 @@ func hostSummary(manifest *Manifest) []string {
 		}
 	}
 	if len(edited) > 0 {
-		lines = append(lines, "edits "+strings.Join(edited, ", ")+" in the persisted home")
+		lines = append(lines, "edits "+strings.Join(edited, ", "))
 	}
 	var read []string
 	for _, source := range host.Environment {

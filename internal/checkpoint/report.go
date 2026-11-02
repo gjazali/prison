@@ -155,8 +155,7 @@ func WriteReport(destination io.Writer, store *Store, identifier string,
 
 	out.line("")
 	if withheld > 0 {
-		out.line("%d more changed path(s) not shown because the diff "+
-			"reached %d lines.", withheld, maximumDiffLinesTotal)
+		out.line("%d more changed path(s) not shown.", withheld)
 		out.line("Run `prison checkpoint diff --full` to see all changes.")
 		out.line("")
 	}

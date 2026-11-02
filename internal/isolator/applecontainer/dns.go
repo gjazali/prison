@@ -33,8 +33,7 @@ func (helper dnsHelper) Describe(domain string) []string {
 	return []string{
 		fmt.Sprintf("runs:   sudo container system dns create %s",
 			domain),
-		fmt.Sprintf("writes: /etc/resolver/containerization.%s "+
-			"(system-wide)", domain),
+		fmt.Sprintf("writes: /etc/resolver/containerization.%s", domain),
 		fmt.Sprintf("undo:   sudo container system dns delete %s",
 			domain),
 	}

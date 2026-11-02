@@ -205,8 +205,7 @@ func TestWriteReportCaps(t *testing.T) {
 		t.Errorf("WriteReport cut %d files, want 7", got)
 	}
 	if !strings.Contains(text, "  changed        c7.txt\n\n"+
-		"1 more changed path(s) not shown because the diff reached "+
-		"400 lines.\n"+
+		"1 more changed path(s) not shown.\n"+
 		"Run `prison checkpoint diff --full` to see all changes.\n\n"+
 		"Run `prison checkpoint` to save these changes.\n") {
 		t.Errorf("WriteReport has the wrong tail:\n%s", text)

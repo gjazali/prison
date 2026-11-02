@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"prison/internal/hostfw"
 	"prison/internal/isolator"
@@ -18,7 +19,9 @@ func (s *Session) ensureHostFirewall(
 	spec := s.HostFirewallSpec(network)
 	ui.Progress(
 		"installing the host packet filter rules")
-	printHostSetupBlock(hostfw.Describe(spec))
+	printHostSetupBlock(hostfw.Describe())
+	printHostSetupBlock(strings.Split(
+		strings.TrimSuffix(hostfw.Rules(spec), "\n"), "\n"))
 	err := hostfw.Install(
 		ctx, spec, s.Root.Path, hostfw.SystemRunner, os.Stderr)
 	if err != nil {

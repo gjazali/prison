@@ -316,7 +316,7 @@ func TestMergeConflictReportParagraph(t *testing.T) {
 		"  CONFLICT       c.txt (1 hunk(s))\n",
 		"  merged         mode3.sh (permissions differ, kept 0755)\n",
 		"10 path(s) merged, 6 conflicted.\n",
-		"`|||||||`",
+		"Edit the files to remove the conflict markers.\n",
 		"checkpoint 0003 is the tree from before this merge",
 	} {
 		if !strings.Contains(text, want) {

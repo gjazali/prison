@@ -87,7 +87,7 @@ func runHostFirewall(command *cobra.Command, removeRules bool) error {
 func installHostFirewall(ctx context.Context, command *cobra.Command,
 	spec hostfw.Spec, stagingDirectory string) error {
 	out := command.OutOrStdout()
-	printIndentedBlock(out, strings.Join(hostfw.Describe(spec), "\n"))
+	printIndentedBlock(out, strings.Join(hostfw.Describe(), "\n"))
 	fmt.Fprintln(out)
 	printIndentedBlock(out, hostfw.Rules(spec))
 	fmt.Fprintln(out)
@@ -98,7 +98,6 @@ func installHostFirewall(ctx context.Context, command *cobra.Command,
 		hostfw.SystemRunner, os.Stderr); err != nil {
 		return err
 	}
-	ui.Progress("a box can reach this host only on port %d", spec.BrokerPort)
 	return nil
 }
 

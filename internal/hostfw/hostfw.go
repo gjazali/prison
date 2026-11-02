@@ -97,11 +97,11 @@ func ReadCommand() string {
 	return pfReadCommand()
 }
 
-func Describe(spec Spec) []string {
+func Describe() []string {
 	if runtime.GOOS == "linux" {
-		return nftDescribe(spec)
+		return nftDescribe()
 	}
-	return pfDescribe(spec)
+	return pfDescribe()
 }
 
 func isSupportedOperatingSystem() bool {

@@ -422,13 +422,11 @@ func runPorts() error {
 }
 
 func describeSudo(current *session.Session) string {
+	sudo := config.ResolveSudo(current.Overrides, current.Config)
 	if current.Record != nil && current.Record.Box != nil {
-		if current.Record.Box.Sudo {
-			return "yes, as the box was created"
-		}
-		return "no, as the box was created"
+		sudo = current.Record.Box.Sudo
 	}
-	if config.ResolveSudo(current.Overrides, current.Config) {
+	if sudo {
 		return "yes"
 	}
 	return "no"
