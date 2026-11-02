@@ -11,7 +11,7 @@ import (
 
 func TestIntegrationNftRulesParse(t *testing.T) {
 	if _, err := exec.LookPath("nft"); err != nil {
-		t.Skip("nft is not on PATH")
+		skipOutsideCI(t, "nft is not on PATH")
 	}
 	path := filepath.Join(t.TempDir(), "rules.nft")
 	spec := Spec{SubnetV4: "192.168.198.0/24", SubnetV6: "fd00:1::/64",
@@ -24,4 +24,12 @@ func TestIntegrationNftRulesParse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("nft --check: %v\n%s", err, output)
 	}
+}
+
+func skipOutsideCI(t *testing.T, reason any) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Fatal(reason)
+	}
+	t.Skip(reason)
 }

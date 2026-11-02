@@ -505,33 +505,73 @@ func (driver *Driver) stopProcess(ctx context.Context, name string) error {
 	if pid == 0 {
 		return nil
 	}
+	_, started, found := driver.processStat(pid)
+	if !found {
+		return nil
+	}
 	socket := filepath.Join(driver.boxDirectory(name), vsockSocketFile)
 	request, cancel := context.WithTimeout(ctx, 5*time.Second)
 	askError := askAgent(request, socket, machine.OperationShutdown)
 	cancel()
-	if askError == nil && driver.waitForExit(ctx, name, driver.stopTimeout) {
+	if askError == nil &&
+		driver.waitForExit(ctx, pid, started, driver.stopTimeout) {
 		return nil
 	}
-	if err := unix.Kill(pid, unix.SIGKILL); err != nil &&
-		!errors.Is(err, unix.ESRCH) {
-		return fmt.Errorf("cannot stop box %s: %w", name, err)
+	if driver.processAlive(pid, started) {
+		if err := unix.Kill(pid, unix.SIGKILL); err != nil &&
+			!errors.Is(err, unix.ESRCH) {
+			return fmt.Errorf("cannot stop box %s: %w", name, err)
+		}
 	}
-	if !driver.waitForExit(ctx, name, 5*time.Second) {
+	if !driver.waitForExit(ctx, pid, started, 5*time.Second) {
 		return fmt.Errorf("box %s did not stop", name)
 	}
 	return nil
 }
 
-func (driver *Driver) waitForExit(ctx context.Context, name string,
-	timeout time.Duration) bool {
+func (driver *Driver) waitForExit(ctx context.Context, pid int,
+	started string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-	for driver.processOf(name) != 0 {
+	for driver.processAlive(pid, started) {
 		if time.Now().After(deadline) || ctx.Err() != nil {
 			return false
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 	return true
+}
+
+// processAlive ignores the command line because it is empty before the tap
+// closes.
+func (driver *Driver) processAlive(pid int, started string) bool {
+	state, current, found := driver.processStat(pid)
+	if !found || current != started {
+		return false
+	}
+	if state != "Z" {
+		return true
+	}
+	threads, err := os.ReadDir(
+		filepath.Join(driver.procfs, strconv.Itoa(pid), "task"))
+	return err == nil && len(threads) > 1
+}
+
+func (driver *Driver) processStat(pid int) (string, string, bool) {
+	content, err := os.ReadFile(
+		filepath.Join(driver.procfs, strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return "", "", false
+	}
+	end := bytes.LastIndexByte(content, ')')
+	if end < 0 {
+		return "", "", false
+	}
+	fields := strings.Fields(string(content[end+1:]))
+	// The start time is field 22.
+	if len(fields) < 20 {
+		return "", "", false
+	}
+	return fields[0], fields[19], true
 }
 
 func (driver *Driver) Delete(ctx context.Context, name string) error {

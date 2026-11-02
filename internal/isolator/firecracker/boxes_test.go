@@ -135,6 +135,44 @@ func TestProcessOfIgnoresReusedProcessIDs(t *testing.T) {
 	}
 }
 
+func TestProcessAliveUntilTheProcessIsGone(t *testing.T) {
+	stat := func(state, started string) string {
+		fields := []string{"4242", "(fire (cracker))", state}
+		for field := 4; field <= 21; field++ {
+			fields = append(fields, "0")
+		}
+		return strings.Join(append(fields, started, "0"), " ") + "\n"
+	}
+	cases := []struct {
+		name    string
+		stat    string
+		threads int
+		want    bool
+	}{
+		{"running", stat("S", "900"), 3, true},
+		{"exiting with threads", stat("Z", "900"), 3, true},
+		{"zombie", stat("Z", "900"), 1, false},
+		{"reused process ID", stat("S", "901"), 1, false},
+		{"gone", "", 0, false},
+	}
+	for _, c := range cases {
+		driver := New(t.TempDir(), nil)
+		driver.procfs = t.TempDir()
+		process := filepath.Join(driver.procfs, "4242")
+		if c.stat != "" {
+			writeFile(t, filepath.Join(process, "stat"), c.stat)
+			writeFile(t, filepath.Join(process, "cmdline"), "")
+		}
+		for thread := range c.threads {
+			writeFile(t, filepath.Join(process, "task",
+				strconv.Itoa(4242+thread), "stat"), c.stat)
+		}
+		if got := driver.processAlive(4242, "900"); got != c.want {
+			t.Errorf("processAlive(%s) = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestFreeTapIndexSkipsUsedTaps(t *testing.T) {
 	driver := New(t.TempDir(), nil)
 	driver.procfs = t.TempDir()

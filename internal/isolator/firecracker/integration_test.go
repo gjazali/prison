@@ -20,10 +20,10 @@ import (
 func TestIntegrationImageChainAndDisk(t *testing.T) {
 	driver := New(t.TempDir(), nil)
 	if _, err := driver.builderAddress(); err != nil {
-		t.Skip(err)
+		skipOutsideCI(t, err)
 	}
 	if _, err := exec.LookPath("debugfs"); err != nil {
-		t.Skip("debugfs is not on PATH")
+		skipOutsideCI(t, "debugfs is not on PATH")
 	}
 	ctx := context.Background()
 	var output bytes.Buffer
@@ -92,11 +92,11 @@ func TestIntegrationBoxLifecycle(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(state) })
 	driver := New(state, kernel)
 	if err := driver.Require(context.Background()); err != nil {
-		t.Skip(err)
+		skipOutsideCI(t, err)
 	}
 	helper := filepath.Join(repository, "bin", "prison")
 	if _, err := os.Stat(helper); err != nil {
-		t.Skip("run `make` first")
+		skipOutsideCI(t, "run `make` first")
 	}
 	driver.helperSource = func() (string, error) { return helper, nil }
 	share, err := os.MkdirTemp("/tmp", "prison-share-")
@@ -106,7 +106,7 @@ func TestIntegrationBoxLifecycle(t *testing.T) {
 	t.Cleanup(func() { os.RemoveAll(share) })
 	writeFile(t, filepath.Join(share, "from-host.txt"), "host data")
 	if _, err := driver.kernelPath(); err != nil {
-		t.Skip(err)
+		skipOutsideCI(t, err)
 	}
 	ctx := context.Background()
 	if err := driver.EnsureNetwork(ctx, "prison-it"); err != nil {
@@ -259,4 +259,12 @@ func assertShareWorks(t *testing.T, driver *Driver, name, share string) {
 				os.Getuid())
 		}
 	}
+}
+
+func skipOutsideCI(t *testing.T, reason any) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Fatal(reason)
+	}
+	t.Skip(reason)
 }
