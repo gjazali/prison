@@ -121,3 +121,21 @@ func TestResolvConf(t *testing.T) {
 		t.Fatal("checkReady(unclaimed) = nil, want an error")
 	}
 }
+
+func TestParentsUnderHome(t *testing.T) {
+	cases := []struct {
+		path string
+		want []string
+	}{
+		{"/home/dev/.claude", nil},
+		{"/home/dev/.local/share/opencode",
+			[]string{"/home/dev/.local/share", "/home/dev/.local"}},
+		{"/home/devil/.cache/tool", nil},
+	}
+	for _, c := range cases {
+		got := parentsUnderHome("/home/dev", c.path)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("parentsUnderHome(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}

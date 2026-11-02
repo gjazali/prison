@@ -85,6 +85,7 @@ Credential headers:
 - `Authorization`
 - `X-Api-Key`
 - `Api-Key`
+- `X-Goog-Api-Key`
 - `Proxy-Authorization`
 
 Forwarded headers:

@@ -93,8 +93,11 @@ func runContainerInit(arguments []string, gatewayPorts []int,
 		logger.Printf("sudo: %v", err)
 	}
 	for _, path := range configuration.persistPaths {
-		if err := ownByDev(path, dev); err != nil {
-			logger.Printf("persist: %v", err)
+		for _, owned := range append([]string{path},
+			parentsUnderHome(dev.home, path)...) {
+			if err := ownByDev(owned, dev); err != nil {
+				logger.Printf("persist: %v", err)
+			}
 		}
 	}
 	for _, file := range configuration.readOnlyFiles {

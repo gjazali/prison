@@ -41,9 +41,12 @@ func TestDropHopByHopHeaders(t *testing.T) {
 	if header.Get("Accept") != "*/*" || header.Get("X-Api-Key") != "k" {
 		t.Fatal("an end-to-end header was dropped")
 	}
+	header.Set("X-Goog-Api-Key", "k")
 	DropCredentialHeaders(header)
-	if header.Get("X-Api-Key") != "" {
-		t.Fatal("DropCredentialHeaders kept X-Api-Key")
+	for _, name := range []string{"X-Api-Key", "X-Goog-Api-Key"} {
+		if header.Get(name) != "" {
+			t.Fatalf("DropCredentialHeaders kept %s", name)
+		}
 	}
 
 	upgrade := http.Header{}

@@ -1,0 +1,38 @@
+[inmate]
+name = "opencode"
+description = "opencode.ai"
+
+[image]
+dockerfile = "Dockerfile"
+
+[command]
+run = "opencode"
+unsafe = "opencode --auto"
+
+[auth]
+upstream = "opencode.ai"
+path_prefix = "/inference/"
+base_url_variable = "OPENCODE_BASE_URL"
+token_variable = "OPENCODE_API_KEY"
+
+[[auth.credentials]]
+variable = "OPENCODE_API_KEY"
+header = "Authorization"
+prefix = "Bearer "
+
+[persist]
+paths = ["/home/dev/.config/opencode", "/home/dev/.local/share/opencode"]
+
+[environment]
+OPENCODE_DISABLE_AUTOUPDATE = "true"
+OPENCODE_DISABLE_MODELS_FETCH = "true"
+OPENCODE_MODELS_PATH = "/usr/local/share/opencode-models.json"
+
+[host]
+copy = ["AGENTS.md", "agents/", "commands/", "skills/", "tui.json"]
+
+[[host.json]]
+from = "opencode.json"
+to = "opencode.json"
+keep = ["model", "small_model", "default_agent", "agent", "command",
+        "permission", "theme", "keybinds", "username", "share"]

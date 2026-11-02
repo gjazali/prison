@@ -177,8 +177,9 @@ default.
 ##### `hosts`
 
 This lists the hostnames that the box can reach. This list is unioned with the
-built-in allowlist or the global allowlist. The hostnames defined by Inmates
-as their API upstreams are already whitelisted by default.
+built-in allowlist or the global allowlist. Only through the broker can the box
+reach an Inmate's API upstream. To let the box connect to the upstream directly,
+add the upstream to this list.
 
 An example of the entries look like this:
 

@@ -36,7 +36,8 @@ var upgradeHeaders = map[string]bool{"Connection": true, "Upgrade": true}
 // credentialHeaders are removed so that a box cannot send its own
 // credentials upstream.
 var credentialHeaders = []string{
-	"Authorization", "X-Api-Key", "Api-Key", "Proxy-Authorization",
+	"Authorization", "X-Api-Key", "Api-Key", "X-Goog-Api-Key",
+	"Proxy-Authorization",
 }
 
 // forwardedHeaders are removed to hide the box network from upstreams.

@@ -2,6 +2,7 @@ package guest
 
 import (
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -61,4 +62,16 @@ func childEnvironment(environment []string, dev devIdentity) []string {
 	}
 	return append(result, "HOME="+dev.home, "USER="+devUserName,
 		"LOGNAME="+devUserName)
+}
+
+// parentsUnderHome exists because the isolators create these directories as
+// root.
+func parentsUnderHome(home, path string) []string {
+	var parents []string
+	parent := filepath.Dir(path)
+	for strings.HasPrefix(parent, home+"/") {
+		parents = append(parents, parent)
+		parent = filepath.Dir(parent)
+	}
+	return parents
 }
