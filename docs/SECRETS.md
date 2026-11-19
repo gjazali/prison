@@ -142,9 +142,10 @@ Each intercepting route gets its own certificate authority with a critical
 `nameConstraints` extension. That authority can only sign certificates for the
 one host it's set to.
 
-The connection termination from prison is `HTTP/1.1`-only. If the client inside
-a box requires `HTTP/2` or does certificate-pinning (e.g., Java `TrustManager`),
+If the client inside a box does certificate-pinning (e.g., Java `TrustManager`),
 then `--intercept` will not work.
+
+The connection termination from Prison supports `HTTP/1.1` and `HTTP/2`.
 
 To revoke a secret:
 

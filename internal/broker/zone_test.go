@@ -4,15 +4,19 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"prison/internal/broker/brokerlog"
 	"prison/internal/broker/protocol"
@@ -433,6 +437,197 @@ func TestInterceptRoute(t *testing.T) {
 	})
 	if entry.Secret != "gh" || entry.Host != "localhost" || entry.Path != "/repo" {
 		t.Fatalf("entry = %+v", entry)
+	}
+}
+
+func TestInterceptRouteHTTP2AndTrailers(t *testing.T) {
+	var upstream *httptest.Server
+	var mu sync.Mutex
+	var upstreamProtos []int
+	var upstreamTE string
+	var upstreamAuth string
+
+	h := newHarness(t, func(h *harness, options *Options) {
+		upstream = h.newHTTP2TLSUpstream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			upstreamProtos = append(upstreamProtos, r.ProtoMajor)
+			upstreamTE = r.Header.Get("Te")
+			upstreamAuth = r.Header.Get("Authorization")
+			mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/grpc")
+			w.Header().Add("Trailer", "Grpc-Status")
+			w.Header().Add("Trailer", "Grpc-Message")
+			w.WriteHeader(http.StatusOK)
+			flusher := w.(http.Flusher)
+			io.WriteString(w, "chunk-1:")
+			flusher.Flush()
+			io.WriteString(w, r.URL.Path)
+			w.Header().Set("Grpc-Status", "0")
+			w.Header().Set("Grpc-Message", "ok")
+		}))
+		_, port, _ := strings.Cut(hostPort(upstream), ":")
+		h.createVault(routeSecret("grpc", "localhost:"+port, vault.RouteSpec{
+			Header: "Authorization", Prefix: "Bearer ", Intercept: true,
+		}))
+		h.grant("grpc")
+	})
+	_, port, _ := strings.Cut(hostPort(upstream), ":")
+	h.unlock()
+
+	api := h.tunnelClient(protocol.BrokerHost)
+	certResp, err := api.Get("http://x" + protocol.PathCertificates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, _ := io.ReadAll(certResp.Body)
+	certResp.Body.Close()
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(bundle) {
+		t.Fatal("bundle has no certificate")
+	}
+
+	var h2Only http.Protocols
+	h2Only.SetHTTP2(true)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			Proxy:           http.ProxyURL(h.proxyURL()),
+			TLSClientConfig: &tls.Config{RootCAs: pool},
+			Protocols:       &h2Only,
+		},
+	}
+	defer client.CloseIdleConnections()
+
+	var group sync.WaitGroup
+	errs := make(chan error, 4)
+	for index := 0; index < 4; index++ {
+		group.Add(1)
+		go func(i int) {
+			defer group.Done()
+			path := fmt.Sprintf("/service.Method/%d", i)
+			request, _ := http.NewRequest(http.MethodPost, "https://localhost:"+port+path,
+				strings.NewReader("payload"))
+			request.Header.Set("Te", "trailers")
+			request.Header.Set("Authorization", "Bearer placeholder")
+			response, err := client.Do(request)
+			if err != nil {
+				errs <- err
+				return
+			}
+			body, err := io.ReadAll(response.Body)
+			response.Body.Close()
+			if err != nil {
+				errs <- err
+				return
+			}
+			if response.ProtoMajor != 2 {
+				errs <- fmt.Errorf("client proto = %d, want 2", response.ProtoMajor)
+				return
+			}
+			if string(body) != "chunk-1:"+path {
+				errs <- fmt.Errorf("body = %q, want %q", body, "chunk-1:"+path)
+				return
+			}
+			if got := response.Trailer.Get("Grpc-Status"); got != "0" {
+				errs <- fmt.Errorf("Grpc-Status trailer = %q, want 0", got)
+				return
+			}
+			if got := response.Trailer.Get("Grpc-Message"); got != "ok" {
+				errs <- fmt.Errorf("Grpc-Message trailer = %q, want ok", got)
+				return
+			}
+		}(index)
+	}
+	group.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(upstreamProtos) != 4 {
+		t.Fatalf("upstream requests = %d, want 4", len(upstreamProtos))
+	}
+	for _, proto := range upstreamProtos {
+		if proto != 2 {
+			t.Fatalf("upstream proto = %d, want 2", proto)
+		}
+	}
+	if upstreamTE != "trailers" {
+		t.Fatalf("upstream Te = %q, want trailers", upstreamTE)
+	}
+	if upstreamAuth != "Bearer s3cret-grpc" {
+		t.Fatalf("upstream Authorization = %q, want Bearer s3cret-grpc", upstreamAuth)
+	}
+}
+
+func TestInmateProxyH2CAndHTTP2Upstream(t *testing.T) {
+	var upstreamProto int
+	var upstreamAuth string
+	h := newHarness(t, func(h *harness, options *Options) {
+		upstream := h.newHTTP2TLSUpstream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			upstreamProto = r.ProtoMajor
+			upstreamAuth = r.Header.Get("Authorization")
+			w.Header().Add("Trailer", "X-Done")
+			w.WriteHeader(http.StatusOK)
+			io.WriteString(w, "h2-ok")
+			w.Header().Set("X-Done", "yes")
+		}))
+		profile := &state.Profile{
+			Inmates: []state.InmateRoute{{
+				Name:       "claude",
+				Upstream:   hostPort(upstream),
+				PathPrefix: "/v1/",
+				Credentials: []state.CredentialSpec{
+					{Variable: "TOKEN", Header: "Authorization", Prefix: "Bearer "},
+				},
+			}},
+		}
+		if err := h.project.SaveProfile(profile); err != nil {
+			t.Fatal(err)
+		}
+		h.putInmateCredentials(&vault.InmateCredential{
+			Inmate: "claude", Variable: "TOKEN", Value: "tok-h2",
+		})
+	})
+	h.unlock()
+
+	var h2cOnly http.Protocols
+	h2cOnly.SetUnencryptedHTTP2(true)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			Protocols: &h2cOnly,
+			DialContext: func(context.Context, string, string) (net.Conn, error) {
+				response, conn := h.rawConnect(protocol.InmateHost("claude")+":80", h.token)
+				if conn == nil {
+					return nil, fmt.Errorf("CONNECT answered %s", response.Status)
+				}
+				return conn, nil
+			},
+		},
+	}
+	defer client.CloseIdleConnections()
+
+	response, err := client.Get("http://x/v1/call")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.ProtoMajor != 2 || string(body) != "h2-ok" {
+		t.Fatalf("proto=%d body=%q", response.ProtoMajor, body)
+	}
+	if response.Trailer.Get("X-Done") != "yes" {
+		t.Fatalf("X-Done trailer = %q, want yes", response.Trailer.Get("X-Done"))
+	}
+	if upstreamProto != 2 || upstreamAuth != "Bearer tok-h2" {
+		t.Fatalf("upstream proto=%d auth=%q", upstreamProto, upstreamAuth)
 	}
 }
 

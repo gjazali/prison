@@ -59,6 +59,20 @@ func TestDropHopByHopHeaders(t *testing.T) {
 	if upgrade.Get("Upgrade") != "websocket" || upgrade.Get("Connection") != "Upgrade" {
 		t.Fatalf("upgrade headers dropped: %v", upgrade)
 	}
+
+	grpc := http.Header{}
+	grpc.Set("Te", "trailers")
+	DropHopByHopHeaders(grpc, false)
+	if got := grpc.Get("Te"); got != "trailers" {
+		t.Fatalf("Te = %q, want trailers", got)
+	}
+
+	otherTE := http.Header{}
+	otherTE.Set("Te", "gzip")
+	DropHopByHopHeaders(otherTE, false)
+	if got := otherTE.Get("Te"); got != "" {
+		t.Fatalf("Te = %q, want empty", got)
+	}
 }
 
 func TestSpliceMovesBothWays(t *testing.T) {

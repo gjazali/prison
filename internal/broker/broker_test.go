@@ -381,6 +381,15 @@ func (h *harness) newTLSUpstream(handler http.Handler) *httptest.Server {
 	return server
 }
 
+func (h *harness) newHTTP2TLSUpstream(handler http.Handler) *httptest.Server {
+	server := httptest.NewUnstartedServer(handler)
+	server.EnableHTTP2 = true
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{h.cert}}
+	server.StartTLS()
+	h.t.Cleanup(server.Close)
+	return server
+}
+
 func hostPort(server *httptest.Server) string {
 	return strings.TrimPrefix(strings.TrimPrefix(server.URL, "https://"), "http://")
 }

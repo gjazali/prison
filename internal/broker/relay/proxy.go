@@ -76,9 +76,28 @@ type Result struct {
 	ClientGone   bool
 }
 
-// NewTransport disables HTTP/2 for streaming compatibility.
+type Transport struct {
+	primary *http.Transport
+	upgrade *http.Transport
+}
+
 func NewTransport(responseHeaderTimeout time.Duration,
-	tlsConfig *tls.Config) *http.Transport {
+	tlsConfig *tls.Config) *Transport {
+	var primaryProtocols http.Protocols
+	primaryProtocols.SetHTTP1(true)
+	primaryProtocols.SetHTTP2(true)
+
+	var upgradeProtocols http.Protocols
+	upgradeProtocols.SetHTTP1(true)
+
+	return &Transport{
+		primary: newHTTPTransport(responseHeaderTimeout, tlsConfig, &primaryProtocols),
+		upgrade: newHTTPTransport(responseHeaderTimeout, tlsConfig, &upgradeProtocols),
+	}
+}
+
+func newHTTPTransport(responseHeaderTimeout time.Duration,
+	tlsConfig *tls.Config, protocols *http.Protocols) *http.Transport {
 	dialer := &net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}
 	return &http.Transport{
 		Proxy:                 nil,
@@ -88,9 +107,20 @@ func NewTransport(responseHeaderTimeout time.Duration,
 		ResponseHeaderTimeout: responseHeaderTimeout,
 		MaxIdleConnsPerHost:   maxIdleConnsPerHost,
 		IdleConnTimeout:       idleConnTimeout,
-		ForceAttemptHTTP2:     false,
-		TLSNextProto:          map[string]func(string, *tls.Conn) http.RoundTripper{},
+		Protocols:             protocols,
 	}
+}
+
+func (transport *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
+	if IsUpgradeRequest(r.Header) {
+		return transport.upgrade.RoundTrip(r)
+	}
+	return transport.primary.RoundTrip(r)
+}
+
+func (transport *Transport) CloseIdleConnections() {
+	transport.primary.CloseIdleConnections()
+	transport.upgrade.CloseIdleConnections()
 }
 
 func IsUpgradeRequest(header http.Header) bool {
@@ -108,6 +138,7 @@ func IsUpgradeRequest(header http.Header) bool {
 }
 
 func DropHopByHopHeaders(header http.Header, keepUpgrade bool) {
+	keepTrailers := headerHasToken(header.Values("Te"), "trailers")
 	for _, value := range header.Values("Connection") {
 		for _, token := range strings.Split(value, ",") {
 			name := http.CanonicalHeaderKey(strings.TrimSpace(token))
@@ -122,6 +153,20 @@ func DropHopByHopHeaders(header http.Header, keepUpgrade bool) {
 		}
 		header.Del(name)
 	}
+	if keepTrailers {
+		header.Set("Te", "trailers")
+	}
+}
+
+func headerHasToken(values []string, wanted string) bool {
+	for _, value := range values {
+		for _, token := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(token), wanted) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func DropCredentialHeaders(header http.Header) {

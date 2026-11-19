@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"crypto/tls"
 	"errors"
 	"net"
 	"net/http"
@@ -64,6 +65,19 @@ func (conn *closingConn) CloseWrite() error {
 func ServeConnection(server *http.Server, conn net.Conn) error {
 	listener := newSingleConnectionListener(conn)
 	err := server.Serve(listener)
+	if errors.Is(err, net.ErrClosed) || errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+// ServeTLSConnection wraps the listener inside ServeTLS so http.Server sees
+// an unwrapped *tls.Conn and can negotiate HTTP/2.
+func ServeTLSConnection(server *http.Server, conn net.Conn,
+	tlsConfig *tls.Config) error {
+	server.TLSConfig = tlsConfig
+	listener := newSingleConnectionListener(conn)
+	err := server.ServeTLS(listener, "", "")
 	if errors.Is(err, net.ErrClosed) || errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

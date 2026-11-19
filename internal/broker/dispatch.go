@@ -156,7 +156,7 @@ func (broker *Broker) serveIntercept(w http.ResponseWriter, snapshot *projectSna
 	if err != nil {
 		return
 	}
-	broker.serveTunnel(tls.Server(conn, tlsConfig),
+	broker.serveTLSTunnel(conn, tlsConfig,
 		broker.routeHandler(snapshot.id, secretName, brokerlog.KindRoute, "intercepted"))
 }
 
@@ -238,13 +238,32 @@ func acknowledgeTunnel(w http.ResponseWriter) (net.Conn, error) {
 }
 
 func (broker *Broker) serveTunnel(conn net.Conn, handler http.Handler) {
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
 	server := &http.Server{
 		Handler:           tunnelHandler(handler),
+		Protocols:         &protocols,
 		ReadHeaderTimeout: readHeaderTimeout,
 		IdleTimeout:       tunnelIdleTimeout,
 		ErrorLog:          broker.quietLog,
 	}
 	relay.ServeConnection(server, conn)
+}
+
+func (broker *Broker) serveTLSTunnel(conn net.Conn, tlsConfig *tls.Config,
+	handler http.Handler) {
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetHTTP2(true)
+	server := &http.Server{
+		Handler:           tunnelHandler(handler),
+		Protocols:         &protocols,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       tunnelIdleTimeout,
+		ErrorLog:          broker.quietLog,
+	}
+	relay.ServeTLSConnection(server, conn, tlsConfig)
 }
 
 func tunnelHandler(inner http.Handler) http.Handler {

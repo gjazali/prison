@@ -75,8 +75,8 @@ type Broker struct {
 	limiter *limits.RateLimiter
 	agent   *signing.Agent
 
-	inmateTransport *http.Transport
-	routeTransport  *http.Transport
+	inmateTransport *relay.Transport
+	routeTransport  *relay.Transport
 
 	shutdownOnce      sync.Once
 	shutdownRequested chan struct{}
