@@ -261,6 +261,126 @@ func (v *Vault) SetAuthority(host string, authority *Authority) error {
 	return v.writeLocked(document)
 }
 
+func (v *Vault) InmateCredential(inmate, profile, variable string) (*InmateCredential, bool) {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+	if err := v.reloadLocked(); err != nil {
+		return nil, false
+	}
+	key := InmateCredentialKey(inmate, profile, variable)
+	credential, found := v.document.InmateCredentials[key]
+	if !found || credential == nil {
+		return nil, false
+	}
+	return copyInmateCredential(credential), true
+}
+
+func (v *Vault) InmateCredentials() []*InmateCredential {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+	if err := v.reloadLocked(); err != nil {
+		return nil
+	}
+	credentials := make([]*InmateCredential, 0, len(v.document.InmateCredentials))
+	for _, credential := range v.document.InmateCredentials {
+		if credential != nil {
+			credentials = append(credentials, copyInmateCredential(credential))
+		}
+	}
+	sort.Slice(credentials, func(i, j int) bool {
+		a, b := credentials[i], credentials[j]
+		if a.Inmate != b.Inmate {
+			return a.Inmate < b.Inmate
+		}
+		if a.Profile != b.Profile {
+			if a.Profile == DefaultInmateProfile {
+				return true
+			}
+			if b.Profile == DefaultInmateProfile {
+				return false
+			}
+			return a.Profile < b.Profile
+		}
+		return a.Variable < b.Variable
+	})
+	return credentials
+}
+
+func (v *Vault) PutInmateCredential(credential *InmateCredential) (replaced bool, err error) {
+	if err := ValidateInmateCredential(credential); err != nil {
+		return false, err
+	}
+	stored := copyInmateCredential(credential)
+	if stored.Created.IsZero() {
+		stored.Created = time.Now()
+	}
+	key := InmateCredentialKey(stored.Inmate, stored.Profile, stored.Variable)
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+	unlock, err := v.lockAndReload()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	document := copyDocument(v.document)
+	_, replaced = document.InmateCredentials[key]
+	document.InmateCredentials[key] = stored
+	if err := v.writeLocked(document); err != nil {
+		return false, err
+	}
+	return replaced, nil
+}
+
+func (v *Vault) DeleteInmateCredential(inmate, profile, variable string) (bool, error) {
+	key := InmateCredentialKey(inmate, profile, variable)
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+	unlock, err := v.lockAndReload()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	if _, found := v.document.InmateCredentials[key]; !found {
+		return false, nil
+	}
+	document := copyDocument(v.document)
+	delete(document.InmateCredentials, key)
+	if err := v.writeLocked(document); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (v *Vault) DeleteInmateProfileCredentials(inmate, profile string) (int, error) {
+	if profile == "" {
+		profile = DefaultInmateProfile
+	}
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+	unlock, err := v.lockAndReload()
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
+	var matching []string
+	for key, credential := range v.document.InmateCredentials {
+		if credential != nil && credential.Inmate == inmate && credential.Profile == profile {
+			matching = append(matching, key)
+		}
+	}
+	if len(matching) == 0 {
+		return 0, nil
+	}
+	document := copyDocument(v.document)
+	for _, key := range matching {
+		delete(document.InmateCredentials, key)
+	}
+	if err := v.writeLocked(document); err != nil {
+		return 0, err
+	}
+	return len(matching), nil
+}
+
 // lockAndReload locks a file next to the vault because other processes
 // write the vault too. The reload ignores the size and time.
 func (v *Vault) lockAndReload() (unlock func(), err error) {
@@ -403,6 +523,9 @@ func decryptDocument(parsed *container, key []byte) (*Document, error) {
 	if document.Authorities == nil {
 		document.Authorities = map[string]*Authority{}
 	}
+	if document.InmateCredentials == nil {
+		document.InmateCredentials = map[string]*InmateCredential{}
+	}
 	return document, nil
 }
 
@@ -487,9 +610,10 @@ func writeAndStat(file *os.File, content []byte) (fs.FileInfo, error) {
 
 func emptyDocument() *Document {
 	return &Document{
-		Version:     FormatVersion,
-		Secrets:     map[string]*Secret{},
-		Authorities: map[string]*Authority{},
+		Version:           FormatVersion,
+		Secrets:           map[string]*Secret{},
+		Authorities:       map[string]*Authority{},
+		InmateCredentials: map[string]*InmateCredential{},
 	}
 }
 
@@ -497,9 +621,10 @@ func emptyDocument() *Document {
 // cache that concurrent readers copy from.
 func copyDocument(document *Document) *Document {
 	copied := &Document{
-		Version:     FormatVersion,
-		Secrets:     make(map[string]*Secret, len(document.Secrets)),
-		Authorities: make(map[string]*Authority, len(document.Authorities)),
+		Version:           FormatVersion,
+		Secrets:           make(map[string]*Secret, len(document.Secrets)),
+		Authorities:       make(map[string]*Authority, len(document.Authorities)),
+		InmateCredentials: make(map[string]*InmateCredential, len(document.InmateCredentials)),
 	}
 	for name, secret := range document.Secrets {
 		if secret != nil {
@@ -509,6 +634,11 @@ func copyDocument(document *Document) *Document {
 	for host, authority := range document.Authorities {
 		if authority != nil {
 			copied.Authorities[host] = copyAuthority(authority)
+		}
+	}
+	for key, credential := range document.InmateCredentials {
+		if credential != nil {
+			copied.InmateCredentials[key] = copyInmateCredential(credential)
 		}
 	}
 	return copied
@@ -536,5 +666,10 @@ func copySecret(secret *Secret) *Secret {
 
 func copyAuthority(authority *Authority) *Authority {
 	copied := *authority
+	return &copied
+}
+
+func copyInmateCredential(credential *InmateCredential) *InmateCredential {
+	copied := *credential
 	return &copied
 }

@@ -273,6 +273,9 @@ func announceStateRemoval(project *state.Project) {
 	if granted, err := project.Grants(); err == nil && len(granted) > 0 {
 		fmt.Println("  the secret grants")
 	}
+	if profiles, err := project.InmateAuthProfiles(); err == nil && len(profiles) > 0 {
+		fmt.Println("  the inmate auth profile overrides")
+	}
 }
 
 func runList(command *cobra.Command, stateListing bool) error {
@@ -379,7 +382,7 @@ func runStatus(command *cobra.Command) error {
 		{"state", current.Project.Dir},
 		{"network", current.Overrides.Network},
 		{"sudo", describeSudo(current)},
-		{"inmates", namesOrNone(current.InmateNames)},
+		{"inmates", describeStatusInmates(current)},
 		{"secrets", describeGrantedSecrets(current)},
 	}
 	if err := current.Isolator.Require(ctx); err != nil {
@@ -438,6 +441,25 @@ func describeGrantedSecrets(current *session.Session) string {
 		return "unreadable: " + err.Error()
 	}
 	return namesOrNone(granted)
+}
+
+func describeStatusInmates(current *session.Session) string {
+	if len(current.InmateNames) == 0 {
+		return "none"
+	}
+	profiles, err := current.Project.InmateAuthProfiles()
+	if err != nil || len(profiles) == 0 {
+		return strings.Join(current.InmateNames, " ")
+	}
+	formatted := make([]string, 0, len(current.InmateNames))
+	for _, name := range current.InmateNames {
+		if profile := profiles[name]; profile != "" && profile != "default" {
+			formatted = append(formatted, fmt.Sprintf("%s (%s)", name, profile))
+		} else {
+			formatted = append(formatted, name)
+		}
+	}
+	return strings.Join(formatted, " ")
 }
 
 func describeBoxProject(environment *session.Environment,

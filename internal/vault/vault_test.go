@@ -607,3 +607,92 @@ func TestPutSecretStampsCreated(t *testing.T) {
 		t.Error("Created = zero, want a time")
 	}
 }
+
+func TestInmateCredentialsRoundTripAndDelete(t *testing.T) {
+	v, path := newTestVault(t)
+
+	replaced, err := v.PutInmateCredential(&InmateCredential{
+		Inmate:   "claude-code",
+		Variable: "CLAUDE_CODE_OAUTH_TOKEN",
+		Value:    "oauth-default",
+	})
+	if err != nil || replaced {
+		t.Fatalf("PutInmateCredential(default) = %v, %v, want false, nil", replaced, err)
+	}
+	replaced, err = v.PutInmateCredential(&InmateCredential{
+		Inmate:   "claude-code",
+		Profile:  "work",
+		Variable: "ANTHROPIC_API_KEY",
+		Value:    "sk-work",
+	})
+	if err != nil || replaced {
+		t.Fatalf("PutInmateCredential(work) = %v, %v, want false, nil", replaced, err)
+	}
+	replaced, err = v.PutInmateCredential(&InmateCredential{
+		Inmate:   "claude-code",
+		Profile:  "alpha",
+		Variable: "ANTHROPIC_API_KEY",
+		Value:    "sk-alpha",
+	})
+	if err != nil || replaced {
+		t.Fatalf("PutInmateCredential(alpha) = %v, %v, want false, nil", replaced, err)
+	}
+	replaced, err = v.PutInmateCredential(&InmateCredential{
+		Inmate:   "claude-code",
+		Profile:  "work",
+		Variable: "ANTHROPIC_API_KEY",
+		Value:    "sk-work-rotated",
+	})
+	if err != nil || !replaced {
+		t.Fatalf("PutInmateCredential(rotate) = %v, %v, want true, nil", replaced, err)
+	}
+
+	reopened, err := Open(path, testPassphrase)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	listed := reopened.InmateCredentials()
+	if len(listed) != 3 {
+		t.Fatalf("len(InmateCredentials) = %d, want 3", len(listed))
+	}
+	if listed[0].Profile != DefaultInmateProfile || listed[1].Profile != "alpha" || listed[2].Profile != "work" {
+		t.Fatalf("order = [%s %s %s], want [default alpha work]",
+			listed[0].Profile, listed[1].Profile, listed[2].Profile)
+	}
+	got, found := reopened.InmateCredential("claude-code", "work", "ANTHROPIC_API_KEY")
+	if !found || got.Value != "sk-work-rotated" {
+		t.Fatalf("InmateCredential(work) = %+v, %v", got, found)
+	}
+	gotDefault, found := reopened.InmateCredential("claude-code", "", "CLAUDE_CODE_OAUTH_TOKEN")
+	if !found || gotDefault.Value != "oauth-default" {
+		t.Fatalf("InmateCredential(empty profile) = %+v, %v", gotDefault, found)
+	}
+
+	removed, err := reopened.DeleteInmateCredential("claude-code", "alpha", "ANTHROPIC_API_KEY")
+	if err != nil || !removed {
+		t.Fatalf("DeleteInmateCredential = %v, %v, want true, nil", removed, err)
+	}
+	count, err := reopened.DeleteInmateProfileCredentials("claude-code", "work")
+	if err != nil || count != 1 {
+		t.Fatalf("DeleteInmateProfileCredentials = %d, %v, want 1, nil", count, err)
+	}
+	if _, found := reopened.InmateCredential("claude-code", "work", "ANTHROPIC_API_KEY"); found {
+		t.Fatal("work credential survived DeleteInmateProfileCredentials")
+	}
+}
+
+func TestValidateInmateCredential(t *testing.T) {
+	bad := []*InmateCredential{
+		nil,
+		{Inmate: "Bad", Variable: "KEY", Value: "v"},
+		{Inmate: "claude", Profile: "Bad_Profile", Variable: "KEY", Value: "v"},
+		{Inmate: "claude", Profile: "work", Variable: "1BAD", Value: "v"},
+		{Inmate: "claude", Profile: "work", Variable: "KEY", Value: ""},
+		{Inmate: "claude", Profile: "work", Variable: "KEY", Value: "line1\nline2"},
+	}
+	for index, candidate := range bad {
+		if err := ValidateInmateCredential(candidate); err == nil {
+			t.Errorf("case %d (%+v): ValidateInmateCredential = nil, want an error", index, candidate)
+		}
+	}
+}

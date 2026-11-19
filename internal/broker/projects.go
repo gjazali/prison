@@ -13,14 +13,15 @@ import (
 
 // projectSnapshot is read-only. A reload builds a new snapshot.
 type projectSnapshot struct {
-	id            string
-	token         string
-	grants        []string
-	granted       map[string]bool
-	profile       *state.Profile
-	profileEgress []policy.Pattern
-	egress        []policy.Pattern
-	modTimes      map[string]time.Time
+	id             string
+	token          string
+	grants         []string
+	granted        map[string]bool
+	inmateProfiles map[string]string
+	profile        *state.Profile
+	profileEgress  []policy.Pattern
+	egress         []policy.Pattern
+	modTimes       map[string]time.Time
 }
 
 // projectTable is immutable. Updates swap in a new table.
@@ -99,14 +100,19 @@ func (broker *Broker) loadProject(project *state.Project) (*projectSnapshot, err
 	if err != nil {
 		return nil, err
 	}
+	inmateProfiles, err := project.InmateAuthProfiles()
+	if err != nil {
+		return nil, err
+	}
 	snapshot := &projectSnapshot{
-		id:       project.ID,
-		token:    token,
-		grants:   grants,
-		granted:  make(map[string]bool, len(grants)),
-		profile:  profile,
-		egress:   egress,
-		modTimes: modTimes,
+		id:             project.ID,
+		token:          token,
+		grants:         grants,
+		granted:        make(map[string]bool, len(grants)),
+		inmateProfiles: inmateProfiles,
+		profile:        profile,
+		egress:         egress,
+		modTimes:       modTimes,
 	}
 	for _, name := range grants {
 		snapshot.granted[name] = true

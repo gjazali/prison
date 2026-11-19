@@ -45,11 +45,10 @@ func (broker *Broker) inmateHandler(projectID, inmate string) http.Handler {
 			refuse(http.StatusNotFound, "path is not proxied")
 			return
 		}
-		header, value, ok := broker.chooseCredential(route.Credentials)
+		header, value, refusal, ok := broker.chooseInmateCredential(
+			snapshot, inmate, route.Credentials)
 		if !ok {
-			refuse(http.StatusServiceUnavailable, fmt.Sprintf(
-				"no credential for the %s inmate. Export %s and run `prison up`",
-				inmate, credentialVariableList(route.Credentials)))
+			refuse(http.StatusServiceUnavailable, refusal)
 			return
 		}
 		upstream := relay.Upstream{
@@ -84,19 +83,6 @@ func findInmateRoute(profile *state.Profile, inmate string) *state.InmateRoute {
 		}
 	}
 	return nil
-}
-
-func credentialVariableList(specs []state.CredentialSpec) string {
-	names := make([]string, 0, len(specs))
-	for _, spec := range specs {
-		if spec.Variable != "" {
-			names = append(names, spec.Variable)
-		}
-	}
-	if len(names) == 0 {
-		return "the credential variable"
-	}
-	return strings.Join(names, ", ")
 }
 
 func proxyOutcome(result relay.Result, success string) string {

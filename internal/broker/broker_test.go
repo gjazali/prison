@@ -333,6 +333,27 @@ func (h *harness) createVault(secrets ...*vault.Secret) {
 	created.Lock()
 }
 
+func (h *harness) putInmateCredentials(credentials ...*vault.InmateCredential) {
+	h.t.Helper()
+	var opened *vault.Vault
+	var err error
+	if vault.Exists(h.root.VaultFile()) {
+		opened, err = vault.Open(h.root.VaultFile(), testPassphrase)
+	} else {
+		opened, err = vault.Create(h.root.VaultFile(), testPassphrase)
+	}
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	for _, credential := range credentials {
+		if _, err := opened.PutInmateCredential(credential); err != nil {
+			h.t.Fatalf("putting %s/%s/%s: %v",
+				credential.Inmate, credential.Profile, credential.Variable, err)
+		}
+	}
+	opened.Lock()
+}
+
 func (h *harness) unlock() {
 	h.t.Helper()
 	if err := h.client.Unlock(context.Background(), testPassphrase); err != nil {

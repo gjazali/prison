@@ -167,25 +167,49 @@ For each of these Inmates, you can get more details about them through:
 prison inmate show <b><i>inmate_name</i></b>
 </pre>
 
-If the Inmate requires some authentication, be sure to set them under one of the
-environment variables listed in the output of that command, labeled by
-`auth-credential`. (Be sure to set them in the *host machine*, not the Prison
-box.)
+If an Inmate requires authentication, initialize the secrets vault once and
+store the Inmate's credential in it using `prison inmate auth set`:
 
-Here's an example of what you can do with Claude Code, which is one of the
-available Inmates shipped with Prison:
-
-<pre>
-export CLAUDE_CODE_OAUTH_TOKEN=<b><i>oauth_token</i></b>
+```
+prison secret init
+prison inmate auth set claude-code --variable CLAUDE_CODE_OAUTH_TOKEN
 prison up
 prison claude
-</pre>
+```
 
-The Inmate name is `claude-code`, with `claude` as its alias.
+The snippet above sets the credentials for the `claude-code` Inmate (with
+`claude` as its alias).
 
-`CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) is defined by
-`prison inmate show claude-code` as the environment variables for the
-credentials.
+`CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` are the credential names
+listed by `prison inmate show claude-code`.
+
+When you directly run:
+
+```
+prison inmate auth set
+```
+
+Prison will prompt you for the credential value interactively.
+
+For an Inmate that only accepts one credential (such as `opencode`), you can
+leave out `--variable`.
+
+If you already have the key in a host environment variable, you can import it
+with `--from-environment`:
+
+```
+prison inmate auth set claude-code --from-environment CLAUDE_CODE_OAUTH_TOKEN
+```
+
+When the host variable name matches one of the Inmate's accepted credentials,
+`--variable` becomes optional. If the host variable has a different name,
+then include both parameters:
+
+```
+prison inmate auth set claude-code --variable ANTHROPIC_API_KEY --from-environment WORK_ANTHROPIC_KEY
+```
+
+You can also pipe the credential on `stdin`.
 
 The `unsafe-command` variant of `claude-code`
 (claude --dangerously-skip-permissions) can be triggered through

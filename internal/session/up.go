@@ -109,6 +109,7 @@ func (s *Session) Up(ctx context.Context) (*UpResult, error) {
 	if err := s.pushProfile(ctx, client); err != nil {
 		return nil, err
 	}
+	s.reportMissingInmateCredentials(ctx, client)
 	s.reportRequiredSecrets()
 
 	created, err := s.createOrStartBox(ctx, record, imageTag, ports,
@@ -189,7 +190,7 @@ func (s *Session) unlockVaultIfNeeded(ctx context.Context,
 	if err != nil {
 		return false, err
 	}
-	if len(grants) == 0 {
+	if len(grants) == 0 && !s.hasAuthInmates() {
 		return false, nil
 	}
 	status, err := client.Status(ctx)
@@ -299,35 +300,76 @@ func (s *Session) BuildImage(ctx context.Context) (string, error) {
 	return s.ensureImage(ctx)
 }
 
+func (s *Session) hasAuthInmates() bool {
+	for _, inmate := range s.Inmates {
+		if inmate.Auth != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Session) pushProfile(
 	ctx context.Context, client *control.Client,
 ) error {
-	profile := s.Profile()
-	credentials := map[string]string{}
+	return client.UpdateProject(ctx, s.Project.ID, control.ProjectUpdate{
+		Profile: s.Profile(),
+	})
+}
+
+func (s *Session) reportMissingInmateCredentials(
+	ctx context.Context, client *control.Client,
+) {
+	if !s.hasAuthInmates() {
+		return
+	}
+	if !vault.Exists(s.Root.VaultFile()) {
+		for _, inmate := range s.Inmates {
+			if inmate.Auth == nil {
+				continue
+			}
+			ui.Warn("no credential for the %s inmate. Run `prison secret init`, "+
+				"then `prison inmate auth set %s`", inmate.Name, inmate.Name)
+		}
+		return
+	}
+	status, err := client.Status(ctx)
+	if err != nil || status.Vault != control.VaultUnlocked {
+		return
+	}
+	profiles, _ := s.Project.InmateAuthProfiles()
+	held := map[string]bool{}
+	for _, credential := range status.InmateCredentials {
+		held[vault.InmateCredentialKey(
+			credential.Inmate, credential.Profile, credential.Variable)] = true
+	}
 	for _, inmate := range s.Inmates {
 		if inmate.Auth == nil {
 			continue
 		}
-		held := false
-		var wanted []string
-		for _, credential := range inmate.Auth.Credentials {
-			wanted = append(wanted, credential.Variable)
-			value, present := os.LookupEnv(credential.Variable)
-			if present && value != "" {
-				credentials[credential.Variable] = value
-				held = true
+		profile := vault.DefaultInmateProfile
+		if selected := profiles[inmate.Name]; selected != "" {
+			profile = selected
+		}
+		matched := false
+		for _, spec := range inmate.Auth.Credentials {
+			if held[vault.InmateCredentialKey(inmate.Name, profile, spec.Variable)] {
+				matched = true
+				break
 			}
 		}
-		if !held {
-			ui.Warn("no credential for the %s inmate. Export %s "+
-				"and run `prison up` again", inmate.Name,
-				strings.Join(wanted, " or "))
+		if matched {
+			continue
 		}
+		if profile != vault.DefaultInmateProfile {
+			ui.Warn("no credential for the %s inmate in profile %q. "+
+				"Run `prison inmate auth set %s --profile %s`",
+				inmate.Name, profile, inmate.Name, profile)
+			continue
+		}
+		ui.Warn("no credential for the %s inmate. "+
+			"Run `prison inmate auth set %s`", inmate.Name, inmate.Name)
 	}
-	return client.UpdateProject(ctx, s.Project.ID, control.ProjectUpdate{
-		Profile:     profile,
-		Credentials: credentials,
-	})
 }
 
 func (s *Session) reportRequiredSecrets() {

@@ -171,6 +171,51 @@ func validateExpose(secret *Secret) error {
 	return nil
 }
 
+func ValidateInmateProfile(profile string) error {
+	if !secretNamePattern.MatchString(profile) {
+		return fmt.Errorf(
+			"%q is not a valid profile name. Use up to 32 lowercase letters, "+
+				"digits, and hyphens, starting with a letter", profile)
+	}
+	return nil
+}
+
+// ValidateInmateCredential sets an empty Profile to DefaultInmateProfile.
+func ValidateInmateCredential(credential *InmateCredential) error {
+	if credential == nil {
+		return errors.New("no inmate credential given")
+	}
+	if !secretNamePattern.MatchString(credential.Inmate) {
+		return fmt.Errorf(
+			"%q is not a valid inmate name. Use up to 32 lowercase letters, "+
+				"digits, and hyphens, starting with a letter", credential.Inmate)
+	}
+	if credential.Profile == "" {
+		credential.Profile = DefaultInmateProfile
+	}
+	if err := ValidateInmateProfile(credential.Profile); err != nil {
+		return err
+	}
+	if !environmentVariablePattern.MatchString(credential.Variable) {
+		return fmt.Errorf(
+			"%q is not an environment variable name", credential.Variable)
+	}
+	if credential.Value == "" {
+		return errors.New("an inmate credential needs a value")
+	}
+	if strings.ContainsAny(credential.Value, "\r\n") {
+		return errors.New("an inmate credential cannot contain a newline")
+	}
+	return nil
+}
+
+func InmateCredentialKey(inmate, profile, variable string) string {
+	if profile == "" {
+		profile = DefaultInmateProfile
+	}
+	return inmate + "/" + profile + "/" + variable
+}
+
 // normaliseMethods returns nil for an empty list, which allows all
 // methods.
 func normaliseMethods(methods []string) ([]string, error) {

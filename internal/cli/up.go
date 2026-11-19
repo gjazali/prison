@@ -92,9 +92,13 @@ func printPortLine(mapping isolator.PortMapping) {
 }
 
 func describeInmates(current *session.Session, result *session.UpResult) string {
+	profiles, _ := current.Project.InmateAuthProfiles()
 	names := make([]string, 0, len(current.Inmates))
 	for _, inmate := range current.Inmates {
 		name := inmate.Name
+		if profile := profiles[inmate.Name]; profile != "" && profile != "default" {
+			name += " (" + profile + ")"
+		}
 		if !inmateIsInBox(inmate.Command.Run, result) {
 			name += " (not in this box)"
 		}

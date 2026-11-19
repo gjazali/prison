@@ -362,3 +362,52 @@ func TestSizeAndRemove(t *testing.T) {
 		t.Error("Remove(not a project) error = nil, want an error")
 	}
 }
+
+func TestInmateAuthProfilesRoundTrip(t *testing.T) {
+	root := newTestRoot(t)
+	project := openProject(t, root, "app")
+
+	profiles, err := project.InmateAuthProfiles()
+	if err != nil || profiles != nil {
+		t.Fatalf("InmateAuthProfiles = %v, %v, want nil, nil", profiles, err)
+	}
+	if err := project.SetInmateAuthProfile("claude-code", "work"); err != nil {
+		t.Fatalf("SetInmateAuthProfile: %v", err)
+	}
+	if err := project.SetInmateAuthProfile("opencode", "team"); err != nil {
+		t.Fatalf("SetInmateAuthProfile: %v", err)
+	}
+	profiles, err = project.InmateAuthProfiles()
+	if err != nil {
+		t.Fatalf("InmateAuthProfiles: %v", err)
+	}
+	want := map[string]string{"claude-code": "work", "opencode": "team"}
+	if !reflect.DeepEqual(profiles, want) {
+		t.Fatalf("InmateAuthProfiles = %v, want %v", profiles, want)
+	}
+	times, err := project.ModTimes()
+	if err != nil || times["inmate-auth.json"].IsZero() {
+		t.Fatalf("ModTimes[inmate-auth.json] = %v, %v", times["inmate-auth.json"], err)
+	}
+
+	if err := project.SetInmateAuthProfile("claude-code", "default"); err != nil {
+		t.Fatalf("SetInmateAuthProfile(default): %v", err)
+	}
+	profiles, err = project.InmateAuthProfiles()
+	if err != nil || len(profiles) != 1 || profiles["opencode"] != "team" {
+		t.Fatalf("after reset to default = %v, %v", profiles, err)
+	}
+	if err := project.SetInmateAuthProfile("opencode", ""); err != nil {
+		t.Fatalf("SetInmateAuthProfile(empty): %v", err)
+	}
+	if _, err := os.Stat(project.InmateAuthFile()); !os.IsNotExist(err) {
+		t.Errorf("inmate-auth.json still exists after clearing all profiles: %v", err)
+	}
+	times, err = project.ModTimes()
+	if err != nil {
+		t.Fatalf("ModTimes: %v", err)
+	}
+	if _, present := times["inmate-auth.json"]; present {
+		t.Error("ModTimes still contains inmate-auth.json after removal")
+	}
+}

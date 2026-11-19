@@ -65,9 +65,6 @@ type Broker struct {
 	reloadMutex    sync.Mutex
 	lastLoadErrors map[string]string
 
-	credentialsMutex sync.Mutex
-	credentials      map[string]string
-
 	vaultMutex  sync.Mutex
 	vault       *vault.Vault
 	authorities *ca.Authorities
@@ -175,7 +172,6 @@ func newBroker(ctx context.Context, options Options) *Broker {
 		now:               now,
 		runContext:        ctx,
 		lastLoadErrors:    map[string]string{},
-		credentials:       map[string]string{},
 		limiter:           limits.NewRateLimiter(now),
 		agent:             signing.NewAgent(options.SSHAuthSocket),
 		inmateTransport:   relay.NewTransport(inmateResponseHeaderTimeout, options.UpstreamTLSConfig),

@@ -17,10 +17,21 @@ const (
 
 const ReservedSecretName = "prison"
 
+const DefaultInmateProfile = "default"
+
 type Document struct {
-	Version     int                   `json:"version"`
-	Secrets     map[string]*Secret    `json:"secrets"`
-	Authorities map[string]*Authority `json:"authorities"`
+	Version           int                          `json:"version"`
+	Secrets           map[string]*Secret           `json:"secrets"`
+	Authorities       map[string]*Authority        `json:"authorities"`
+	InmateCredentials map[string]*InmateCredential `json:"inmate_credentials,omitempty"`
+}
+
+type InmateCredential struct {
+	Inmate   string    `json:"inmate"`
+	Profile  string    `json:"profile"`
+	Variable string    `json:"variable"`
+	Value    string    `json:"value"`
+	Created  time.Time `json:"created"`
 }
 
 // Secret is one vault record. Only the spec that matches `Mode` is set.

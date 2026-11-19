@@ -133,13 +133,25 @@ func runBrokerStatus(command *cobra.Command) error {
 			describeListener(listener))
 	}
 	fmt.Fprintf(out, "%-14s %d\n", "projects", len(status.Projects))
-	if len(status.CredentialVariables) > 0 {
+	if len(status.InmateCredentials) > 0 {
 		fmt.Fprintf(out, "%-14s %s\n", "credentials",
-			strings.Join(status.CredentialVariables, ", "))
+			describeBrokerInmateCredentials(status.InmateCredentials))
 	} else {
 		fmt.Fprintf(out, "%-14s %s\n", "credentials", "none")
 	}
 	return nil
+}
+
+func describeBrokerInmateCredentials(credentials []control.InmateCredential) string {
+	parts := make([]string, 0, len(credentials))
+	for _, credential := range credentials {
+		label := credential.Inmate
+		if credential.Profile != "" && credential.Profile != "default" {
+			label += "/" + credential.Profile
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s)", label, credential.Variable))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func describeVaultState(state string) string {

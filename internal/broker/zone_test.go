@@ -15,7 +15,6 @@ import (
 	"testing"
 
 	"prison/internal/broker/brokerlog"
-	"prison/internal/broker/control"
 	"prison/internal/broker/protocol"
 	"prison/internal/broker/signing"
 	"prison/internal/state"
@@ -88,15 +87,30 @@ func TestInmateProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 	expectRefusal(t, response, http.StatusServiceUnavailable,
-		"no credential for the claude inmate. Export ANTHROPIC_API_KEY "+
-			"and run `prison up`")
+		"no credential for the claude inmate. Run `prison secret init`, "+
+			"then `prison inmate auth set claude`")
 
-	err = h.client.UpdateProject(ctx, h.project.ID, control.ProjectUpdate{
-		Credentials: map[string]string{"ANTHROPIC_API_KEY": "sk-real-key"},
-	})
+	h.createVault()
+	response, err = client.Get("http://x/v1/messages")
 	if err != nil {
 		t.Fatal(err)
 	}
+	expectRefusal(t, response, http.StatusServiceUnavailable,
+		"the vault is locked. Run `prison secret unlock`")
+
+	h.unlock()
+	response, err = client.Get("http://x/v1/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectRefusal(t, response, http.StatusServiceUnavailable,
+		"no credential for the claude inmate. Run `prison inmate auth set claude`")
+
+	h.putInmateCredentials(&vault.InmateCredential{
+		Inmate:   "claude",
+		Variable: "ANTHROPIC_API_KEY",
+		Value:    "sk-real-key",
+	})
 	request, _ := http.NewRequest(http.MethodPost, "http://x/v1/messages",
 		strings.NewReader(`{"model":"claude-test-1","messages":[]}`))
 	request.Header.Set("x-api-key", "placeholder-from-the-box")
@@ -127,8 +141,107 @@ func TestInmateProxy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(status.CredentialVariables) != 1 || status.CredentialVariables[0] != "ANTHROPIC_API_KEY" {
-		t.Fatalf("CredentialVariables = %v", status.CredentialVariables)
+	if len(status.InmateCredentials) != 1 ||
+		status.InmateCredentials[0].Inmate != "claude" ||
+		status.InmateCredentials[0].Profile != vault.DefaultInmateProfile ||
+		status.InmateCredentials[0].Variable != "ANTHROPIC_API_KEY" {
+		t.Fatalf("InmateCredentials = %+v", status.InmateCredentials)
+	}
+}
+
+func TestInmateProfileOverrideFailsClosed(t *testing.T) {
+	recorder := &upstreamRecorder{}
+	h := newHarness(t, func(h *harness, options *Options) {
+		upstream := h.newTLSUpstream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			recorder.record(r)
+			io.WriteString(w, "ok")
+		}))
+		profile := &state.Profile{
+			Inmates: []state.InmateRoute{{
+				Name:       "claude-code",
+				Upstream:   hostPort(upstream),
+				PathPrefix: "/v1/",
+				Credentials: []state.CredentialSpec{
+					{Variable: "ANTHROPIC_API_KEY", Header: "x-api-key"},
+					{Variable: "CLAUDE_CODE_OAUTH_TOKEN", Header: "Authorization", Prefix: "Bearer "},
+				},
+			}},
+		}
+		if err := h.project.SaveProfile(profile); err != nil {
+			t.Fatal(err)
+		}
+		h.putInmateCredentials(
+			&vault.InmateCredential{
+				Inmate:   "claude-code",
+				Profile:  vault.DefaultInmateProfile,
+				Variable: "CLAUDE_CODE_OAUTH_TOKEN",
+				Value:    "personal-oauth",
+			},
+			&vault.InmateCredential{
+				Inmate:   "claude-code",
+				Profile:  "work",
+				Variable: "ANTHROPIC_API_KEY",
+				Value:    "sk-work-key",
+			},
+		)
+	})
+	h.unlock()
+	client := h.tunnelClient(protocol.InmateHost("claude-code"))
+
+	response, err := client.Get("http://x/v1/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != 200 || recorder.header("Authorization") != "Bearer personal-oauth" {
+		t.Fatalf("default: status=%d auth=%q", response.StatusCode, recorder.header("Authorization"))
+	}
+
+	if err := h.project.SetInmateAuthProfile("claude-code", "work"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.client.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	response, err = client.Get("http://x/v1/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != 200 || recorder.header("x-api-key") != "sk-work-key" {
+		t.Fatalf("work: status=%d x-api-key=%q", response.StatusCode, recorder.header("x-api-key"))
+	}
+
+	opened, err := vault.Open(h.root.VaultFile(), testPassphrase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := opened.DeleteInmateProfileCredentials("claude-code", "work"); err != nil {
+		t.Fatal(err)
+	}
+	opened.Lock()
+
+	response, err = client.Get("http://x/v1/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectRefusal(t, response, http.StatusServiceUnavailable,
+		`no credential for the claude-code inmate in profile "work". `+
+			"Run `prison inmate auth set claude-code --profile work`")
+
+	if err := h.project.SetInmateAuthProfile("claude-code", "default"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.client.Reload(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	response, err = client.Get("http://x/v1/messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != 200 || recorder.header("Authorization") != "Bearer personal-oauth" {
+		t.Fatalf("reverted: status=%d auth=%q", response.StatusCode, recorder.header("Authorization"))
 	}
 }
 
@@ -151,11 +264,11 @@ func TestInmateSSEStreams(t *testing.T) {
 		if err := h.project.SaveProfile(profile); err != nil {
 			t.Fatal(err)
 		}
+		h.putInmateCredentials(&vault.InmateCredential{
+			Inmate: "claude", Variable: "KEY", Value: "k",
+		})
 	})
-	if err := h.client.UpdateProject(context.Background(), h.project.ID,
-		control.ProjectUpdate{Credentials: map[string]string{"KEY": "k"}}); err != nil {
-		t.Fatal(err)
-	}
+	h.unlock()
 	response, err := h.tunnelClient(protocol.InmateHost("claude")).Get("http://x/stream")
 	if err != nil {
 		t.Fatal(err)

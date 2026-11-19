@@ -15,13 +15,19 @@ const (
 )
 
 type Status struct {
-	Version             string     `json:"version"`
-	StateRoot           string     `json:"state_root"`
-	PID                 int        `json:"pid"`
-	Listeners           []Listener `json:"listeners"`
-	Vault               string     `json:"vault"`
-	Projects            []string   `json:"projects"`
-	CredentialVariables []string   `json:"credential_variables"`
+	Version           string             `json:"version"`
+	StateRoot         string             `json:"state_root"`
+	PID               int                `json:"pid"`
+	Listeners         []Listener         `json:"listeners"`
+	Vault             string             `json:"vault"`
+	Projects          []string           `json:"projects"`
+	InmateCredentials []InmateCredential `json:"inmate_credentials,omitempty"`
+}
+
+type InmateCredential struct {
+	Inmate   string `json:"inmate"`
+	Profile  string `json:"profile"`
+	Variable string `json:"variable"`
 }
 
 type Listener struct {
@@ -46,11 +52,9 @@ type ListenRequest struct {
 	Address string `json:"address"`
 }
 
-// ProjectUpdate leaves `profile.json` alone when Profile is nil. The
-// broker keeps Credentials in memory only.
+// ProjectUpdate leaves `profile.json` alone when Profile is nil.
 type ProjectUpdate struct {
-	Profile     *state.Profile    `json:"profile,omitempty"`
-	Credentials map[string]string `json:"credentials,omitempty"`
+	Profile *state.Profile `json:"profile,omitempty"`
 }
 
 type Environment struct {

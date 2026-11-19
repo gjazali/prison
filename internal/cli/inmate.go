@@ -31,6 +31,7 @@ func addInmateCommands(root *cobra.Command) {
 		newInmateUpdateCommand(),
 		newInmateRemoveCommand(),
 		newInmateTrustCommand(),
+		newInmateAuthCommand(),
 	)
 	root.AddCommand(group)
 }

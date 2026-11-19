@@ -273,6 +273,71 @@ Simply do the following to delete a secret:
 prison secret rm <secret-name>
 ```
 
+## Inmate credentials
+
+Inmate login credentials (such as API keys or OAuth tokens for `claude-code`,
+`antigravity-cli`, `opencode`, etc.) are stored encrypted in the same vault.
+Although, they sit separately from the per-project secrets that you might have
+saved.
+
+To store a default credential for an Inmate:
+
+<pre>
+prison inmate auth set <b><i>inmate_name</i></b> --variable <b><i>inmate_credential_variable_name</i></b>
+</pre>
+
+If an Inmate accepts only one credential variable, then `--variable` can be
+omitted.
+
+Alternatively, if you already have the key in a host environment variable:
+
+<pre>
+prison inmate auth set <b><i>inmate_name</i></b> --variable <b><i>inmate_credential_variable_name</i></b> --from-environment <b><i>host_env_variable_name</i></b>
+</pre>
+
+In this case, the `--variable` flag can be omitted as well if the host variable
+name matches one of the Inmate's accepted credentials.
+
+You can also pipe the credential on `stdin`:
+
+```
+printf '%s' "$CLAUDE_CODE_OAUTH_TOKEN" | prison inmate auth set claude-code --variable CLAUDE_CODE_OAUTH_TOKEN
+```
+
+By default, credentials are saved under the `default` profile and used across
+all projects. To use a separate account for specific projects (for example,
+work credentials in work repositories), save the credential under a named
+profile and bind the project to it:
+
+```
+prison inmate auth set claude-code --profile work --variable ANTHROPIC_API_KEY
+cd ~/work/my-work-project
+prison inmate auth use claude-code work
+```
+
+To revert a project back to the `default` profile:
+
+```
+cd ~/work/my-work-project
+prison inmate auth clear claude-code
+```
+
+To list all the stored credentials:
+
+```
+prison inmate auth list
+```
+
+To remove a credential:
+
+```
+prison inmate auth rm claude-code --profile work
+```
+
+If a project is bound to a named profile whose credentials are later removed,
+the broker will refuse requests for that Inmate. The credentials won't fall back
+to the `default` profile.
+
 ## List of flags for all secret modes
 
 ### All modes

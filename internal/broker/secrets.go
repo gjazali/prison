@@ -2,6 +2,7 @@ package broker
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"sort"
 	"strconv"
@@ -186,44 +187,65 @@ func upstreamAddress(upstream string) string {
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
-// mergeCredentials keeps credentials in memory only. An empty value
-// deletes the entry.
-func (broker *Broker) mergeCredentials(values map[string]string) {
-	broker.credentialsMutex.Lock()
-	defer broker.credentialsMutex.Unlock()
-	for name, value := range values {
-		if value == "" {
-			delete(broker.credentials, name)
-			continue
+func (broker *Broker) inmateCredentialSummaries() []control.InmateCredential {
+	opened := broker.currentVault()
+	if opened == nil {
+		return nil
+	}
+	stored := opened.InmateCredentials()
+	if len(stored) == 0 {
+		return nil
+	}
+	summaries := make([]control.InmateCredential, 0, len(stored))
+	for _, credential := range stored {
+		summaries = append(summaries, control.InmateCredential{
+			Inmate:   credential.Inmate,
+			Profile:  credential.Profile,
+			Variable: credential.Variable,
+		})
+	}
+	return summaries
+}
+
+// A named profile does not fall back to the default profile when missing.
+func (broker *Broker) chooseInmateCredential(snapshot *projectSnapshot,
+	inmate string, specs []state.CredentialSpec) (header, value, refusal string, ok bool) {
+	profile := vault.DefaultInmateProfile
+	overridden := false
+	if snapshot != nil {
+		if selected := snapshot.inmateProfiles[inmate]; selected != "" &&
+			selected != vault.DefaultInmateProfile {
+			profile = selected
+			overridden = true
 		}
-		broker.credentials[name] = value
 	}
-}
-
-func (broker *Broker) credentialVariables() []string {
-	broker.credentialsMutex.Lock()
-	defer broker.credentialsMutex.Unlock()
-	names := make([]string, 0, len(broker.credentials))
-	for name := range broker.credentials {
-		names = append(names, name)
+	opened := broker.currentVault()
+	if opened == nil {
+		if !vault.Exists(broker.root.VaultFile()) {
+			return "", "", fmt.Sprintf(
+				"no credential for the %s inmate. Run `prison secret init`, "+
+					"then `prison inmate auth set %s`", inmate, inmate), false
+		}
+		return "", "", "the vault is locked. Run `prison secret unlock`", false
 	}
-	sort.Strings(names)
-	return names
-}
-
-func (broker *Broker) chooseCredential(specs []state.CredentialSpec) (header, value string, ok bool) {
-	broker.credentialsMutex.Lock()
-	defer broker.credentialsMutex.Unlock()
 	for _, spec := range specs {
-		held := broker.credentials[spec.Variable]
-		if held == "" {
+		credential, found := opened.InmateCredential(inmate, profile, spec.Variable)
+		if !found || credential.Value == "" {
 			continue
 		}
 		header = spec.Header
 		if header == "" {
 			header = "Authorization"
 		}
-		return header, spec.Prefix + held, true
+		return header, spec.Prefix + credential.Value, "", true
 	}
-	return "", "", false
+	if overridden {
+		return "", "", fmt.Sprintf(
+			"no credential for the %s inmate in profile %q. "+
+				"Run `prison inmate auth set %s --profile %s`",
+			inmate, profile, inmate, profile), false
+	}
+	return "", "", fmt.Sprintf(
+		"no credential for the %s inmate. Run `prison inmate auth set %s`",
+		inmate, inmate), false
 }

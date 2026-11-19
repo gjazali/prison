@@ -14,7 +14,7 @@ import (
 )
 
 // changingFiles lists the per-project files that the broker watches.
-var changingFiles = []string{"token", "grants", "egress-allow", "profile.json"}
+var changingFiles = []string{"token", "grants", "egress-allow", "profile.json", "inmate-auth.json"}
 
 type Project struct {
 	ID            string
@@ -149,6 +149,41 @@ func (p *Project) Profile() (*Profile, error) {
 
 func (p *Project) SaveProfile(profile *Profile) error {
 	return writeJSONFile(p.ProfileFile(), profile)
+}
+
+func (p *Project) InmateAuthFile() string {
+	return filepath.Join(p.Dir, "inmate-auth.json")
+}
+
+func (p *Project) InmateAuthProfiles() (map[string]string, error) {
+	var profiles map[string]string
+	found, err := readJSONFile(p.InmateAuthFile(), &profiles)
+	if err != nil || !found || len(profiles) == 0 {
+		return nil, err
+	}
+	return profiles, nil
+}
+
+func (p *Project) SetInmateAuthProfile(inmate, profile string) error {
+	profiles, err := p.InmateAuthProfiles()
+	if err != nil {
+		return err
+	}
+	if profiles == nil {
+		profiles = map[string]string{}
+	}
+	if profile == "" || profile == "default" {
+		delete(profiles, inmate)
+	} else {
+		profiles[inmate] = profile
+	}
+	if len(profiles) == 0 {
+		if err := os.Remove(p.InmateAuthFile()); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("cannot remove %s: %w", p.InmateAuthFile(), err)
+		}
+		return nil
+	}
+	return writeJSONFile(p.InmateAuthFile(), profiles)
 }
 
 // TrustedConfigCopy returns the path to the approved copy of `prison.toml`.

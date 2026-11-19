@@ -63,13 +63,13 @@ func (broker *Broker) handleStatus(w http.ResponseWriter, r *http.Request) {
 	table := broker.projects.Load()
 	projects := append([]string{}, table.ids...)
 	writeJSON(w, http.StatusOK, control.Status{
-		Version:             broker.options.Version,
-		StateRoot:           broker.root.Path,
-		PID:                 os.Getpid(),
-		Listeners:           broker.listenerStates(),
-		Vault:               broker.vaultState(),
-		Projects:            projects,
-		CredentialVariables: broker.credentialVariables(),
+		Version:           broker.options.Version,
+		StateRoot:         broker.root.Path,
+		PID:               os.Getpid(),
+		Listeners:         broker.listenerStates(),
+		Vault:             broker.vaultState(),
+		Projects:          projects,
+		InmateCredentials: broker.inmateCredentialSummaries(),
 	})
 }
 
@@ -108,7 +108,6 @@ func (broker *Broker) handleUpdateProject(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	broker.mergeCredentials(update.Credentials)
 	if err := broker.reloadProject(id); err != nil {
 		relay.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
