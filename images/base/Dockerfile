@@ -15,10 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       iptables \
       jq \
       less \
+      libatomic1 \
       ncurses-term \
       procps \
       ripgrep \
       sudo \
+      unzip \
       xz-utils \
   && rm -rf /var/lib/apt/lists/* \
   && ln -sf "$(which fdfind)" /usr/local/bin/fd
