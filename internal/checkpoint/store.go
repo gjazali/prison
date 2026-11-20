@@ -220,6 +220,25 @@ func (store *Store) Metadata(identifier string) (Metadata, error) {
 	return document.metadata(), nil
 }
 
+func (store *Store) GitDiff(wanted string) ([]GitChange, error) {
+	identifier, err := store.DiffTarget(wanted)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := store.Metadata(identifier)
+	if err != nil {
+		return nil, err
+	}
+	if metadata.Git == nil {
+		return nil, nil
+	}
+	current, err := CaptureGitState(store.Project)
+	if err != nil {
+		return nil, err
+	}
+	return CompareGitState(metadata.Git, current), nil
+}
+
 func (store *Store) Take(label string) (Checkpoint, error) {
 	entries, skipped, err := store.Scan()
 	if err != nil {
@@ -247,10 +266,12 @@ func (store *Store) Take(label string) (Checkpoint, error) {
 	}
 	identifier := formatCheckpointID(highest + 1)
 
+	gitState, _ := CaptureGitState(store.Project)
 	metadata := Metadata{
 		Time:    time.Now(),
 		Label:   label,
 		Entries: len(entries),
+		Git:     gitState,
 	}
 	document, err := json.MarshalIndent(metadata.document(), "", "  ")
 	if err != nil {

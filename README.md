@@ -304,6 +304,13 @@ prison checkpoint remove <b><i>id</i></b>
 </pre>
 
 The `.git` directory is ignored by the checkpointing system by default.
+Although, each checkpoint records `HEAD` and local Git refs (`refs/heads/*`,
+`refs/tags/*`) in its metadata. To roll them back along with the worktree, use
+the `--git` flag:
+
+<pre>
+prison checkpoint restore <b><i>id</i></b> --git
+</pre>
 
 ### Using the Secrets Manager
 

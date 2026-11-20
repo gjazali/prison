@@ -103,14 +103,18 @@ func newCheckpointDiffCommand() *cobra.Command {
 }
 
 func newCheckpointRestoreCommand() *cobra.Command {
-	return &cobra.Command{
+	var restoreGit bool
+	command := &cobra.Command{
 		Use:   "restore <id>",
 		Short: "restore the tree to a checkpoint",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return runCheckpointRestore(arguments[0])
+			return runCheckpointRestore(arguments[0], restoreGit)
 		},
 	}
+	command.Flags().BoolVar(&restoreGit, "git", false,
+		"also restore recorded git refs and HEAD")
+	return command
 }
 
 func newCheckpointMergeCommand() *cobra.Command {
@@ -303,8 +307,9 @@ func runCheckpointDiff(wanted string, full bool) error {
 	if err != nil {
 		return err
 	}
+	gitChanges, _ := store.GitDiff(identifier)
 	reportCheckpointSkips(skipped)
-	if changes.Empty() {
+	if changes.Empty() && len(gitChanges) == 0 {
 		// Stdout is for the diff tool only, so this message goes to stderr.
 		if diffTool != "" {
 			fmt.Fprintf(os.Stderr, "no changes since checkpoint %s\n",
@@ -314,8 +319,23 @@ func runCheckpointDiff(wanted string, full bool) error {
 		fmt.Printf("no changes since checkpoint %s\n", identifier)
 		return nil
 	}
+	if changes.Empty() {
+		destination := os.Stdout
+		if diffTool != "" {
+			destination = os.Stderr
+		}
+		fmt.Fprintf(destination, "no tree changes since checkpoint %s; git refs changed:\n",
+			identifier)
+		for _, change := range gitChanges {
+			fmt.Fprintf(destination, "  git: %s\n", checkpoint.FormatGitChange(change))
+		}
+		return ui.Exit(1, "")
+	}
 
 	if diffTool != "" {
+		for _, change := range gitChanges {
+			fmt.Fprintf(os.Stderr, "git: %s\n", checkpoint.FormatGitChange(change))
+		}
 		if err := renderCheckpointDiffThroughTool(
 			diffTool, store, identifier, changes); err != nil {
 			return err
@@ -325,7 +345,10 @@ func runCheckpointDiff(wanted string, full bool) error {
 
 	var report bytes.Buffer
 	if err := checkpoint.WriteReport(&report, store, identifier, changes,
-		checkpoint.ReportOptions{Full: full || paging}); err != nil {
+		checkpoint.ReportOptions{
+			Full:       full || paging,
+			GitChanges: gitChanges,
+		}); err != nil {
 		return err
 	}
 	if err := showCheckpointReport(report.Bytes(), pager, paging); err != nil {
@@ -386,7 +409,7 @@ func reportCheckpointSkips(skipped []checkpoint.Skipped) {
 	}
 }
 
-func runCheckpointRestore(wanted string) error {
+func runCheckpointRestore(wanted string, restoreGit bool) error {
 	store, unlock, err := openLockedCheckpointStore()
 	if err != nil {
 		return err
@@ -396,7 +419,8 @@ func runCheckpointRestore(wanted string) error {
 	if err != nil {
 		return err
 	}
-	result, restoreErr := store.Restore(identifier)
+	result, restoreErr := store.RestoreWithOptions(identifier,
+		checkpoint.RestoreOptions{Git: restoreGit})
 	if result.Automatic != "" {
 		fmt.Printf("current tree recorded as checkpoint %s\n",
 			result.Automatic)
@@ -430,6 +454,17 @@ func printCheckpointRestore(identifier string,
 	result checkpoint.RestoreResult) {
 	fmt.Printf("restored checkpoint %s: %d entries in place, %d removed\n",
 		identifier, result.Written, result.Removed)
+	if result.Git != nil {
+		parts := []string{fmt.Sprintf("%d ref(s) updated", result.Git.RestoredRefs)}
+		if result.Git.HeadChanged {
+			parts = append(parts, "HEAD restored")
+		}
+		fmt.Printf("restored git state: %s\n", strings.Join(parts, ", "))
+		if len(result.Git.KeptNewRefs) > 0 {
+			fmt.Printf("kept newer git ref(s): %s\n",
+				strings.Join(result.Git.KeptNewRefs, ", "))
+		}
+	}
 }
 
 func runCheckpointMerge(wanted, base string, dryRun bool) error {

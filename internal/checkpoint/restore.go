@@ -13,16 +13,38 @@ import (
 // restoreTemporarySuffix is in `DefaultIgnores`, so scans skip these files.
 const restoreTemporarySuffix = ".prison-partial"
 
+type RestoreOptions struct {
+	Git bool
+}
+
 type RestoreResult struct {
 	Automatic string
 	Written   int
 	Removed   int
+	Git       *GitRestoreResult
 }
 
 func (store *Store) Restore(wanted string) (RestoreResult, error) {
+	return store.RestoreWithOptions(wanted, RestoreOptions{})
+}
+
+func (store *Store) RestoreWithOptions(
+	wanted string, options RestoreOptions,
+) (RestoreResult, error) {
 	identifier, recorded, err := store.restorable(wanted)
 	if err != nil {
 		return RestoreResult{}, err
+	}
+	var targetGit *GitState
+	if options.Git {
+		metadata, err := store.Metadata(identifier)
+		if err != nil {
+			return RestoreResult{}, err
+		}
+		if err := CheckGitRestorable(store.Project, metadata.Git); err != nil {
+			return RestoreResult{}, err
+		}
+		targetGit = metadata.Git
 	}
 	automatic, err := store.Take(
 		fmt.Sprintf("automatic, before restoring %s", identifier))
@@ -31,7 +53,17 @@ func (store *Store) Restore(wanted string) (RestoreResult, error) {
 	}
 	result, err := store.restore(identifier, recorded)
 	result.Automatic = automatic.ID
-	return result, err
+	if err != nil {
+		return result, err
+	}
+	if options.Git {
+		gitResult, err := RestoreGitState(store.Project, targetGit)
+		if err != nil {
+			return result, err
+		}
+		result.Git = &gitResult
+	}
+	return result, nil
 }
 
 // RestoreWithoutAutomatic serves `back` and `forward`.

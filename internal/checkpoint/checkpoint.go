@@ -53,12 +53,14 @@ type Metadata struct {
 	Time    time.Time
 	Label   string
 	Entries int
+	Git     *GitState
 }
 
 type metadataDocument struct {
-	Time    string `json:"time"`
-	Label   string `json:"label"`
-	Entries int    `json:"entries"`
+	Time    string    `json:"time"`
+	Label   string    `json:"label"`
+	Entries int       `json:"entries"`
+	Git     *GitState `json:"git,omitempty"`
 }
 
 // legacyMetadataTimeLayout is the time format of the old Python tool.
@@ -68,6 +70,7 @@ func (metadata Metadata) document() metadataDocument {
 	document := metadataDocument{
 		Label:   metadata.Label,
 		Entries: metadata.Entries,
+		Git:     metadata.Git.clone(),
 	}
 	if !metadata.Time.IsZero() {
 		document.Time = metadata.Time.Format(time.RFC3339)
@@ -76,7 +79,11 @@ func (metadata Metadata) document() metadataDocument {
 }
 
 func (document metadataDocument) metadata() Metadata {
-	parsed := Metadata{Label: document.Label, Entries: document.Entries}
+	parsed := Metadata{
+		Label:   document.Label,
+		Entries: document.Entries,
+		Git:     document.Git.clone(),
+	}
 	for _, layout := range []string{time.RFC3339, legacyMetadataTimeLayout} {
 		if moment, err := time.Parse(layout, document.Time); err == nil {
 			parsed.Time = moment

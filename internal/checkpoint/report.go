@@ -29,7 +29,8 @@ const (
 )
 
 type ReportOptions struct {
-	Full bool
+	Full       bool
+	GitChanges []GitChange
 }
 
 func (store *Store) DiffTarget(wanted string) (string, error) {
@@ -90,6 +91,12 @@ func WriteReport(destination io.Writer, store *Store, identifier string,
 	out := &lineWriter{destination: destination}
 	out.line("%d path(s) changed since checkpoint %s.",
 		changes.Count(), identifier)
+	if len(options.GitChanges) > 0 {
+		out.line("")
+		for _, change := range options.GitChanges {
+			out.line("  %-*s%s", reportLabelWidth, "git", FormatGitChange(change))
+		}
+	}
 	out.line("")
 
 	for _, entry := range changes.Added {
