@@ -61,3 +61,19 @@ func TestUnifiedDifferenceReportsTwoIdenticalFiles(t *testing.T) {
 		t.Errorf("unifiedDifference error = %v, want errNoDifference", err)
 	}
 }
+
+func TestUnifiedDifferenceFromDevNullMarksAllLinesAdded(t *testing.T) {
+	current := []byte("[box]\nsudo = true\n")
+	difference, err := unifiedDifferenceWithLabels(
+		os.DevNull, "/dev/null", "prison.toml", current)
+	if err != nil {
+		t.Fatalf("unifiedDifferenceWithLabels: %v", err)
+	}
+	header := "--- /dev/null\n+++ prison.toml\n"
+	if !strings.HasPrefix(difference, header) {
+		t.Errorf("header = %q, want %q", difference, header)
+	}
+	if !strings.Contains(difference, "+[box]\n+sudo = true\n") {
+		t.Errorf("difference = %q, want added lines", difference)
+	}
+}

@@ -82,6 +82,20 @@ func showConfigurationBeingTrusted(
 	trustedCopyPath := currentSession.Project.TrustedConfigCopy()
 	if _, err := os.Stat(trustedCopyPath); err != nil {
 		ui.Progress("prison.toml was never trusted:")
+		if diffTool != "" {
+			difference, diffErr := unifiedDifferenceWithLabels(
+				os.DevNull, "/dev/null", session.ProjectConfigFileName,
+				configurationContent)
+			if diffErr == nil {
+				if err := pipeThroughCommand(
+					diffTool, strings.NewReader(difference)); err == nil {
+					fmt.Println()
+					return
+				} else {
+					ui.Warn("%v", err)
+				}
+			}
+		}
 		fmt.Println(ui.Indent(string(configurationContent), "  "))
 		return
 	}
@@ -126,14 +140,21 @@ func resolveTrustDiffTool(currentSession *session.Session) string {
 func unifiedDifference(
 	trustedCopyPath string, currentContent []byte,
 ) (string, error) {
+	return unifiedDifferenceWithLabels(
+		trustedCopyPath, trustedConfigLabel, currentConfigLabel, currentContent)
+}
+
+func unifiedDifferenceWithLabels(
+	beforePath, beforeLabel, afterLabel string, afterContent []byte,
+) (string, error) {
 	program, err := exec.LookPath("diff")
 	if err != nil {
 		return "", err
 	}
 	command := exec.Command(program, "-u",
-		"-L", trustedConfigLabel, "-L", currentConfigLabel,
-		trustedCopyPath, "-")
-	command.Stdin = bytes.NewReader(currentContent)
+		"-L", beforeLabel, "-L", afterLabel,
+		beforePath, "-")
+	command.Stdin = bytes.NewReader(afterContent)
 	output, err := command.Output()
 	if err != nil {
 		var exitError *exec.ExitError
