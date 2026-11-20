@@ -87,17 +87,29 @@ func (a *Authorities) Authority(host string) (*vault.Authority, error) {
 }
 
 func (a *Authorities) TLSConfig(host string) (*tls.Config, error) {
-	normalized, err := normalizeHost(host)
+	return a.TLSConfigFor(host, host)
+}
+
+func (a *Authorities) TLSConfigFor(authorityHost, leafHost string) (*tls.Config, error) {
+	authority, err := normalizeHost(authorityHost)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := a.Authority(normalized); err != nil {
+	leaf, err := normalizeHost(leafHost)
+	if err != nil {
+		return nil, err
+	}
+	if leaf != authority && !strings.HasSuffix(leaf, "."+authority) {
+		return nil, fmt.Errorf("%w: %q is not under %q",
+			ErrInvalidHost, leafHost, authorityHost)
+	}
+	if _, err := a.Authority(authority); err != nil {
 		return nil, err
 	}
 	return &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		GetCertificate: func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-			return a.leaf(normalized)
+			return a.leaf(authority, leaf)
 		},
 	}, nil
 }
@@ -210,17 +222,18 @@ func (a *Authorities) createAuthority(host string) (*vault.Authority, error) {
 	}, nil
 }
 
-func (a *Authorities) leaf(host string) (*tls.Certificate, error) {
+func (a *Authorities) leaf(authorityHost, leafHost string) (*tls.Certificate, error) {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 	now := a.now()
-	if cached, ok := a.leaves[host]; ok {
+	cacheKey := authorityHost + "/" + leafHost
+	if cached, ok := a.leaves[cacheKey]; ok {
 		age := now.Sub(cached.minted)
 		if age >= 0 && age < leafReuse {
 			return cached.certificate, nil
 		}
 	}
-	authority, err := a.authorityLocked(host)
+	authority, err := a.authorityLocked(authorityHost)
 	if err != nil {
 		return nil, err
 	}
@@ -237,8 +250,8 @@ func (a *Authorities) leaf(host string) (*tls.Certificate, error) {
 	}
 	template := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: host},
-		DNSNames:              []string{host},
+		Subject:               pkix.Name{CommonName: leafHost},
+		DNSNames:              []string{leafHost},
 		NotBefore:             now.Add(-time.Minute),
 		NotAfter:              now.Add(leafLifetime),
 		BasicConstraintsValid: true,
@@ -249,18 +262,18 @@ func (a *Authorities) leaf(host string) (*tls.Certificate, error) {
 		rand.Reader, template, authority.certificate, &a.leafKey.PublicKey,
 		authority.key)
 	if err != nil {
-		return nil, fmt.Errorf("signing leaf for %s: %w", host, err)
+		return nil, fmt.Errorf("signing leaf for %s: %w", leafHost, err)
 	}
 	parsed, err := x509.ParseCertificate(leafDER)
 	if err != nil {
-		return nil, fmt.Errorf("parsing leaf for %s: %w", host, err)
+		return nil, fmt.Errorf("parsing leaf for %s: %w", leafHost, err)
 	}
 	certificate := &tls.Certificate{
 		Certificate: [][]byte{leafDER},
 		PrivateKey:  a.leafKey,
 		Leaf:        parsed,
 	}
-	a.leaves[host] = &cachedLeaf{certificate: certificate, minted: now}
+	a.leaves[cacheKey] = &cachedLeaf{certificate: certificate, minted: now}
 	return certificate, nil
 }
 

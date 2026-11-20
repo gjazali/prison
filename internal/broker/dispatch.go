@@ -97,6 +97,10 @@ func (broker *Broker) serveConnect(w http.ResponseWriter, r *http.Request,
 		broker.serveIntercept(w, snapshot, route.Name, host, port, started)
 		return
 	}
+	if inmate, authorityHost, ok := broker.interceptInmateFor(snapshot, host, port); ok {
+		broker.serveInmateIntercept(w, snapshot, inmate, authorityHost, host, port, started)
+		return
+	}
 	decision := broker.allowListFor(snapshot).Allows(host, port)
 	if !decision.Allowed {
 		broker.refuseDestination(w, snapshot, client, r.Method, host, port,
@@ -158,6 +162,36 @@ func (broker *Broker) serveIntercept(w http.ResponseWriter, snapshot *projectSna
 	}
 	broker.serveTLSTunnel(conn, tlsConfig,
 		broker.routeHandler(snapshot.id, secretName, brokerlog.KindRoute, "intercepted"))
+}
+
+func (broker *Broker) serveInmateIntercept(w http.ResponseWriter, snapshot *projectSnapshot,
+	inmate, authorityHost, host string, port int, started time.Time) {
+	refuse := func(message string) {
+		relay.WriteError(w, http.StatusBadGateway, message)
+		broker.record(brokerlog.Entry{
+			Kind: brokerlog.KindInmate, Project: snapshot.id, Inmate: inmate,
+			Method: http.MethodConnect, Host: host, Port: port,
+			Outcome: outcomeRefused, Status: http.StatusBadGateway,
+			DurationMS: elapsedMilliseconds(started),
+		})
+	}
+	authorities := broker.currentAuthorities()
+	if authorities == nil {
+		refuse(fmt.Sprintf("no certificate authority to terminate TLS for %s "+
+			"on the %s inmate. Unlock the vault", host, inmate))
+		return
+	}
+	tlsConfig, err := authorities.TLSConfigFor(authorityHost, host)
+	if err != nil {
+		refuse(fmt.Sprintf("cannot make a certificate for %s: %v", host, err))
+		return
+	}
+	conn, err := acknowledgeTunnel(w)
+	if err != nil {
+		return
+	}
+	broker.serveTLSTunnel(conn, tlsConfig,
+		broker.inmateHandler(snapshot.id, inmate, host, port, "intercepted"))
 }
 
 func (broker *Broker) serveAbsoluteURI(w http.ResponseWriter, r *http.Request,
@@ -280,7 +314,7 @@ func tunnelHandler(inner http.Handler) http.Handler {
 func (broker *Broker) zoneHandler(projectID, kind, name string) http.Handler {
 	switch kind {
 	case protocol.KindInmate:
-		return broker.inmateHandler(projectID, name)
+		return broker.inmateHandler(projectID, name, "", 0, outcomeForwarded)
 	case protocol.KindRoute:
 		return broker.routeHandler(projectID, name, brokerlog.KindRoute, "named")
 	default:

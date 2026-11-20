@@ -33,14 +33,18 @@ type Profile struct {
 }
 
 type InmateRoute struct {
-	Name        string           `json:"name"`
-	Upstream    string           `json:"upstream"`
-	PathPrefix  string           `json:"path_prefix,omitempty"`
-	Credentials []CredentialSpec `json:"credentials,omitempty"`
+	Name           string           `json:"name"`
+	Upstream       string           `json:"upstream,omitempty"`
+	Intercept      bool             `json:"intercept,omitempty"`
+	InterceptHosts []string         `json:"intercept_hosts,omitempty"`
+	PathPrefix     string           `json:"path_prefix,omitempty"`
+	Credentials    []CredentialSpec `json:"credentials,omitempty"`
 }
 
 type CredentialSpec struct {
 	Variable string `json:"variable"`
 	Header   string `json:"header"`
 	Prefix   string `json:"prefix,omitempty"`
+	TokenURL string `json:"token_url,omitempty"`
+	ClientID string `json:"client_id,omitempty"`
 }

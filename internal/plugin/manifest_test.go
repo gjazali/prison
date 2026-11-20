@@ -152,3 +152,41 @@ run = "agy"
 		t.Errorf("aliases = %v, want [agy]", manifest.Inmate.Aliases)
 	}
 }
+
+func TestParseManifestInterceptAndOAuth(t *testing.T) {
+	manifest, err := ParseManifest([]byte(minimalManifest + `
+[auth]
+upstream = "cloudcode-pa.googleapis.com"
+intercept = true
+intercept_hosts = ["*.rep.googleapis.com"]
+
+[[auth.credentials]]
+variable = "GOOGLE_OAUTH_REFRESH_TOKEN"
+header = "Authorization"
+prefix = "Bearer "
+token_url = "https://oauth2.googleapis.com/token"
+client_id = "client-123"
+`))
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	if !manifest.Auth.Intercept || len(manifest.Auth.InterceptHosts) != 1 {
+		t.Fatalf("auth = %+v", manifest.Auth)
+	}
+	if manifest.Auth.Credentials[0].TokenURL != "https://oauth2.googleapis.com/token" ||
+		manifest.Auth.Credentials[0].ClientID != "client-123" {
+		t.Fatalf("credentials = %+v", manifest.Auth.Credentials)
+	}
+
+	bad := []string{
+		"[auth]\nintercept_hosts = [\"*.com\"]\n[[auth.credentials]]\nvariable = \"K\"\nheader = \"Authorization\"\n",
+		"[auth]\nintercept_hosts = [\"api.example.com:*\"]\n[[auth.credentials]]\nvariable = \"K\"\nheader = \"Authorization\"\n",
+		"[auth]\nupstream = \"api.example.com\"\nintercept = true\n[[auth.credentials]]\nvariable = \"K\"\nheader = \"Authorization\"\ntoken_url = \"http://oauth.example/token\"\n",
+		"[auth]\nupstream = \"api.example.com\"\nintercept = true\n[[auth.credentials]]\nvariable = \"K\"\nheader = \"Authorization\"\nclient_id = \"id-without-url\"\n",
+	}
+	for index, fragment := range bad {
+		if _, err := ParseManifest([]byte(minimalManifest + fragment)); err == nil {
+			t.Errorf("bad case %d: ParseManifest = nil, want an error", index)
+		}
+	}
+}

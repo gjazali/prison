@@ -4,6 +4,7 @@ package plugin
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"slices"
 	"sort"
@@ -56,6 +57,8 @@ type CommandTable struct {
 // AuthTable describes the upstream that the broker proxies for the inmate.
 type AuthTable struct {
 	Upstream        string       `toml:"upstream"`
+	Intercept       bool         `toml:"intercept"`
+	InterceptHosts  []string     `toml:"intercept_hosts"`
 	PathPrefix      string       `toml:"path_prefix"`
 	BaseURLVariable string       `toml:"base_url_variable"`
 	TokenVariable   string       `toml:"token_variable"`
@@ -68,6 +71,8 @@ type Credential struct {
 	Variable string `toml:"variable"`
 	Header   string `toml:"header"`
 	Prefix   string `toml:"prefix"`
+	TokenURL string `toml:"token_url"`
+	ClientID string `toml:"client_id"`
 }
 
 type PersistTable struct {
@@ -115,8 +120,8 @@ var acceptedKeys = map[string][]string{
 	"inmate":           {"name", "description", "aliases"},
 	"image":            {"foundation", "dockerfile"},
 	"command":          {"run", "unsafe"},
-	"auth":             {"upstream", "path_prefix", "base_url_variable", "token_variable", "credentials"},
-	"auth.credentials": {"variable", "header", "prefix"},
+	"auth":             {"upstream", "intercept", "intercept_hosts", "path_prefix", "base_url_variable", "token_variable", "credentials"},
+	"auth.credentials": {"variable", "header", "prefix", "token_url", "client_id"},
 	"persist":          {"paths"},
 	"egress":           {"hosts"},
 	"hooks":            {"box_command"},
@@ -200,8 +205,13 @@ func (m *Manifest) applyDefaults() {
 	if m.Image.Dockerfile == "" {
 		m.Image.Dockerfile = DefaultDockerfile
 	}
-	if m.Auth != nil && m.Auth.PathPrefix == "" {
-		m.Auth.PathPrefix = "/"
+	if m.Auth != nil {
+		if m.Auth.PathPrefix == "" {
+			m.Auth.PathPrefix = "/"
+		}
+		if len(m.Auth.InterceptHosts) > 0 {
+			m.Auth.Intercept = true
+		}
 	}
 	if m.Host.Root == "" && len(m.Persist.Paths) > 0 {
 		first := m.Persist.Paths[0]
@@ -289,8 +299,32 @@ func (m *Manifest) validateAuth() error {
 	if m.Auth == nil {
 		return nil
 	}
-	if err := requireLine(m.Auth.Upstream, "auth.upstream"); err != nil {
-		return err
+	if m.Auth.Upstream == "" && len(m.Auth.InterceptHosts) == 0 {
+		return fmt.Errorf("auth.upstream or auth.intercept_hosts is required")
+	}
+	if m.Auth.Upstream != "" {
+		if err := requireLine(m.Auth.Upstream, "auth.upstream"); err != nil {
+			return err
+		}
+		pattern, err := policy.ParsePattern(m.Auth.Upstream)
+		if err != nil || pattern.Wildcard || pattern.AllPorts {
+			return fmt.Errorf("auth.upstream %q must be host or host:port", m.Auth.Upstream)
+		}
+	}
+	for _, host := range m.Auth.InterceptHosts {
+		if err := requireLine(host, "auth.intercept_hosts"); err != nil {
+			return err
+		}
+		pattern, err := policy.ParsePattern(host)
+		if err != nil {
+			return fmt.Errorf("auth.intercept_hosts: %w", err)
+		}
+		if pattern.AllPorts {
+			return fmt.Errorf("auth.intercept_hosts %q cannot use `:*`", host)
+		}
+		if pattern.Wildcard && !strings.Contains(pattern.Host, ".") {
+			return fmt.Errorf("auth.intercept_hosts %q wildcard domain is too broad", host)
+		}
 	}
 	if !strings.HasPrefix(m.Auth.PathPrefix, "/") {
 		return fmt.Errorf("auth.path_prefix %q must start with `/`", m.Auth.PathPrefix)
@@ -304,6 +338,9 @@ func (m *Manifest) validateAuth() error {
 		{m.Auth.BaseURLVariable, "auth.base_url_variable"},
 		{m.Auth.TokenVariable, "auth.token_variable"},
 	} {
+		if named.value == "" && m.Auth.Intercept {
+			continue
+		}
 		if err := requireLine(named.value, named.key); err != nil {
 			return err
 		}
@@ -326,6 +363,24 @@ func (m *Manifest) validateAuth() error {
 		}
 		if strings.ContainsAny(credential.Prefix, "\r\n") {
 			return fmt.Errorf("auth.credentials.prefix must be a single line")
+		}
+		if credential.TokenURL != "" {
+			if err := requireLine(credential.TokenURL, "auth.credentials.token_url"); err != nil {
+				return err
+			}
+			parsed, err := url.Parse(credential.TokenURL)
+			if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+				return fmt.Errorf("auth.credentials.token_url %q must be an https:// URL",
+					credential.TokenURL)
+			}
+		}
+		if credential.ClientID != "" {
+			if credential.TokenURL == "" {
+				return fmt.Errorf("auth.credentials.client_id needs auth.credentials.token_url")
+			}
+			if err := requireLine(credential.ClientID, "auth.credentials.client_id"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

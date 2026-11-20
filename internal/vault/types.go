@@ -26,12 +26,19 @@ type Document struct {
 	InmateCredentials map[string]*InmateCredential `json:"inmate_credentials,omitempty"`
 }
 
+type InmateOAuthSpec struct {
+	TokenURL     string `json:"token_url,omitempty"`
+	ClientID     string `json:"client_id,omitempty"`
+	ClientSecret string `json:"client_secret,omitempty"`
+}
+
 type InmateCredential struct {
-	Inmate   string    `json:"inmate"`
-	Profile  string    `json:"profile"`
-	Variable string    `json:"variable"`
-	Value    string    `json:"value"`
-	Created  time.Time `json:"created"`
+	Inmate   string           `json:"inmate"`
+	Profile  string           `json:"profile"`
+	Variable string           `json:"variable"`
+	Value    string           `json:"value"`
+	OAuth    *InmateOAuthSpec `json:"oauth,omitempty"`
+	Created  time.Time        `json:"created"`
 }
 
 // Secret is one vault record. Only the spec that matches `Mode` is set.

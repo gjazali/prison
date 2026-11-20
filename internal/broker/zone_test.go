@@ -631,6 +631,253 @@ func TestInmateProxyH2CAndHTTP2Upstream(t *testing.T) {
 	}
 }
 
+func TestInmateOAuthRefreshAndRotation(t *testing.T) {
+	var mu sync.Mutex
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	tokenCalls := 0
+	var seenRefreshTokens []string
+	var seenClientID, seenClientSecret string
+	failRefresh := false
+
+	recorder := &upstreamRecorder{}
+	var tokenServer *httptest.Server
+	h := newHarness(t, func(h *harness, options *Options) {
+		options.Now = func() time.Time {
+			mu.Lock()
+			defer mu.Unlock()
+			return now
+		}
+		tokenServer = h.newTLSUpstream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			tokenCalls++
+			call := tokenCalls
+			seenRefreshTokens = append(seenRefreshTokens, r.FormValue("refresh_token"))
+			seenClientID = r.FormValue("client_id")
+			seenClientSecret = r.FormValue("client_secret")
+			shouldFail := failRefresh
+			mu.Unlock()
+
+			w.Header().Set("Content-Type", "application/json")
+			if shouldFail {
+				w.WriteHeader(http.StatusBadRequest)
+				io.WriteString(w, `{"error":"invalid_grant","error_description":"token revoked"}`)
+				return
+			}
+			if call == 1 {
+				io.WriteString(w, `{"access_token":"acc-1","expires_in":3600,"refresh_token":"rt-2"}`)
+				return
+			}
+			io.WriteString(w, `{"access_token":"acc-2","expires_in":3600}`)
+		}))
+		upstream := h.newTLSUpstream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			recorder.record(r)
+			io.WriteString(w, "ok")
+		}))
+		profile := &state.Profile{
+			Inmates: []state.InmateRoute{{
+				Name:       "agy",
+				Upstream:   hostPort(upstream),
+				PathPrefix: "/",
+				Credentials: []state.CredentialSpec{{
+					Variable: "OAUTH_REFRESH",
+					Header:   "Authorization",
+					Prefix:   "Bearer ",
+					TokenURL: tokenServer.URL + "/token",
+					ClientID: "manifest-client-id",
+				}},
+			}},
+		}
+		if err := h.project.SaveProfile(profile); err != nil {
+			t.Fatal(err)
+		}
+		h.putInmateCredentials(&vault.InmateCredential{
+			Inmate:   "agy",
+			Variable: "OAUTH_REFRESH",
+			Value:    "rt-1",
+			OAuth: &vault.InmateOAuthSpec{
+				ClientSecret: "super-client-secret",
+			},
+		})
+	})
+	h.unlock()
+	client := h.tunnelClient(protocol.InmateHost("agy"))
+
+	resp, err := client.Get("http://x/call-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 || recorder.header("Authorization") != "Bearer acc-1" {
+		t.Fatalf("call 1: status=%d auth=%q", resp.StatusCode, recorder.header("Authorization"))
+	}
+
+	resp, err = client.Get("http://x/call-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 || recorder.header("Authorization") != "Bearer acc-1" {
+		t.Fatalf("call 2: status=%d auth=%q", resp.StatusCode, recorder.header("Authorization"))
+	}
+
+	mu.Lock()
+	callsBeforeExpiry := tokenCalls
+	mu.Unlock()
+	if callsBeforeExpiry != 1 {
+		t.Fatalf("tokenCalls before expiry = %d, want 1", callsBeforeExpiry)
+	}
+
+	opened, err := vault.Open(h.root.VaultFile(), testPassphrase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, found := opened.InmateCredential("agy", vault.DefaultInmateProfile, "OAUTH_REFRESH")
+	opened.Lock()
+	if !found || stored.Value != "rt-2" {
+		t.Fatalf("stored refresh token = %+v, %v, want rt-2", stored, found)
+	}
+
+	mu.Lock()
+	now = now.Add(3550 * time.Second)
+	mu.Unlock()
+
+	resp, err = client.Get("http://x/call-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 || recorder.header("Authorization") != "Bearer acc-2" {
+		t.Fatalf("call 3: status=%d auth=%q", resp.StatusCode, recorder.header("Authorization"))
+	}
+
+	mu.Lock()
+	if tokenCalls != 2 || len(seenRefreshTokens) != 2 ||
+		seenRefreshTokens[0] != "rt-1" || seenRefreshTokens[1] != "rt-2" ||
+		seenClientID != "manifest-client-id" || seenClientSecret != "super-client-secret" {
+		t.Fatalf("token calls=%d rts=%v cid=%q csec=%q",
+			tokenCalls, seenRefreshTokens, seenClientID, seenClientSecret)
+	}
+	failRefresh = true
+	now = now.Add(3600 * time.Second)
+	mu.Unlock()
+
+	resp, err = client.Get("http://x/call-4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := errorMessage(t, resp)
+	if resp.StatusCode != http.StatusServiceUnavailable || !strings.Contains(msg, "invalid_grant") {
+		t.Fatalf("failed refresh: status=%d msg=%q", resp.StatusCode, msg)
+	}
+	if strings.Contains(msg, "rt-2") || strings.Contains(msg, "super-client-secret") {
+		t.Fatalf("error leaked secret: %q", msg)
+	}
+}
+
+func TestInmateInterceptTLSAndHTTP2(t *testing.T) {
+	recorder := &upstreamRecorder{}
+	var upstream *httptest.Server
+	var upstreamProto int
+	h := newHarness(t, func(h *harness, options *Options) {
+		upstream = h.newHTTP2TLSUpstream(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			upstreamProto = r.ProtoMajor
+			recorder.record(r)
+			io.WriteString(w, "inmate-intercepted")
+		}))
+		_, port, _ := strings.Cut(hostPort(upstream), ":")
+		profile := &state.Profile{
+			Inmates: []state.InmateRoute{{
+				Name:           "agy",
+				Upstream:       "localhost:" + port,
+				Intercept:      true,
+				InterceptHosts: []string{"*.rep.googleapis.com"},
+				PathPrefix:     "/v1internal/",
+				Credentials: []state.CredentialSpec{{
+					Variable: "TOKEN",
+					Header:   "Authorization",
+					Prefix:   "Bearer ",
+				}},
+			}},
+		}
+		if err := h.project.SaveProfile(profile); err != nil {
+			t.Fatal(err)
+		}
+		h.putInmateCredentials(&vault.InmateCredential{
+			Inmate: "agy", Variable: "TOKEN", Value: "real-inmate-token",
+		})
+	})
+	_, port, _ := strings.Cut(hostPort(upstream), ":")
+	h.unlock()
+
+	api := h.tunnelClient(protocol.BrokerHost)
+	hostsResp, err := api.Get("http://x" + protocol.PathHosts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostsBody, _ := io.ReadAll(hostsResp.Body)
+	hostsResp.Body.Close()
+	if !strings.Contains(string(hostsBody), "localhost:"+port+"\n") ||
+		!strings.Contains(string(hostsBody), "*.rep.googleapis.com:443\n") {
+		t.Fatalf("/v1/hosts = %q", hostsBody)
+	}
+
+	certResp, err := api.Get("http://x" + protocol.PathCertificates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, _ := io.ReadAll(certResp.Body)
+	certResp.Body.Close()
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(bundle) {
+		t.Fatal("bundle has no certificates")
+	}
+
+	var h2Only http.Protocols
+	h2Only.SetHTTP2(true)
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			Proxy:           http.ProxyURL(h.proxyURL()),
+			TLSClientConfig: &tls.Config{RootCAs: pool},
+			Protocols:       &h2Only,
+		},
+	}
+	defer client.CloseIdleConnections()
+
+	request, _ := http.NewRequest(http.MethodPost,
+		"https://localhost:"+port+"/v1internal/generate", strings.NewReader("{}"))
+	request.Header.Set("Authorization", "Bearer placeholder")
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(response.Body)
+	response.Body.Close()
+	if response.StatusCode != 200 || response.ProtoMajor != 2 || string(body) != "inmate-intercepted" {
+		t.Fatalf("status=%d proto=%d body=%q", response.StatusCode, response.ProtoMajor, body)
+	}
+	if upstreamProto != 2 || recorder.header("Authorization") != "Bearer real-inmate-token" {
+		t.Fatalf("upstream proto=%d auth=%q", upstreamProto, recorder.header("Authorization"))
+	}
+
+	denied, err := client.Get("https://localhost:" + port + "/outside")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectRefusal(t, denied, http.StatusNotFound, "path is not proxied")
+
+	entry := h.waitForEntry(brokerlog.KindInmate, func(entry brokerlog.Entry) bool {
+		return entry.Outcome == "intercepted" && entry.Inmate == "agy"
+	})
+	if entry.Host != "localhost" || entry.Path != "/v1internal/generate" {
+		t.Fatalf("entry = %+v", entry)
+	}
+}
+
 func TestSignHMAC(t *testing.T) {
 	h := newHarness(t, func(h *harness, options *Options) {
 		h.createVault(&vault.Secret{

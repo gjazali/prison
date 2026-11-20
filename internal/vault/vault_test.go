@@ -689,10 +689,28 @@ func TestValidateInmateCredential(t *testing.T) {
 		{Inmate: "claude", Profile: "work", Variable: "1BAD", Value: "v"},
 		{Inmate: "claude", Profile: "work", Variable: "KEY", Value: ""},
 		{Inmate: "claude", Profile: "work", Variable: "KEY", Value: "line1\nline2"},
+		{Inmate: "claude", Variable: "KEY", Value: "v", OAuth: &InmateOAuthSpec{TokenURL: "http://oauth.example/token"}},
+		{Inmate: "claude", Variable: "KEY", Value: "v", OAuth: &InmateOAuthSpec{TokenURL: "https://"}},
+		{Inmate: "claude", Variable: "KEY", Value: "v", OAuth: &InmateOAuthSpec{ClientID: "a\nb"}},
+		{Inmate: "claude", Variable: "KEY", Value: "v", OAuth: &InmateOAuthSpec{ClientSecret: "a\rb"}},
 	}
 	for index, candidate := range bad {
 		if err := ValidateInmateCredential(candidate); err == nil {
 			t.Errorf("case %d (%+v): ValidateInmateCredential = nil, want an error", index, candidate)
 		}
+	}
+
+	good := &InmateCredential{
+		Inmate:   "agy",
+		Variable: "REFRESH_TOKEN",
+		Value:    "rt-1",
+		OAuth: &InmateOAuthSpec{
+			TokenURL:     "https://oauth2.googleapis.com/token",
+			ClientID:     "client-123",
+			ClientSecret: "secret-456",
+		},
+	}
+	if err := ValidateInmateCredential(good); err != nil {
+		t.Fatalf("ValidateInmateCredential(good) = %v", err)
 	}
 }

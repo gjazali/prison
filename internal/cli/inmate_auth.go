@@ -43,10 +43,13 @@ func newInmateAuthCommand() *cobra.Command {
 }
 
 type inmateAuthSetOptions struct {
-	inmate          string
-	profile         string
-	variable        string
-	fromEnvironment string
+	inmate                      string
+	profile                     string
+	variable                    string
+	fromEnvironment             string
+	tokenURL                    string
+	clientID                    string
+	clientSecretFromEnvironment string
 }
 
 func newInmateAuthSetCommand() *cobra.Command {
@@ -67,6 +70,13 @@ func newInmateAuthSetCommand() *cobra.Command {
 		"credential variable from the inmate's manifest")
 	flags.StringVar(&options.fromEnvironment, "from-environment", "",
 		"read the value from this host environment variable")
+	flags.StringVar(&options.tokenURL, "token-url", "",
+		"OAuth token endpoint for a refresh token")
+	flags.StringVar(&options.clientID, "client-id", "",
+		"OAuth client ID for a refresh token")
+	flags.StringVar(&options.clientSecretFromEnvironment,
+		"client-secret-from-environment", "",
+		"read the OAuth client secret from this host environment variable")
 	return command
 }
 
@@ -156,6 +166,11 @@ func runInmateAuthSet(command *cobra.Command, options *inmateAuthSetOptions) err
 	if err != nil {
 		return err
 	}
+	spec := findInmateCredentialSpec(inmate, variable)
+	oauthSpec, err := resolveInmateOAuthSpec(spec, options)
+	if err != nil {
+		return err
+	}
 	opened, err := openSecretVault(environment.Root)
 	if err != nil {
 		return err
@@ -171,6 +186,7 @@ func runInmateAuthSet(command *cobra.Command, options *inmateAuthSetOptions) err
 		Profile:  profile,
 		Variable: variable,
 		Value:    value,
+		OAuth:    oauthSpec,
 		Created:  time.Now(),
 	}
 	replaced, err := opened.PutInmateCredential(credential)
@@ -249,6 +265,73 @@ func inmateCredentialNames(inmate *plugin.Inmate) []string {
 	return names
 }
 
+func findInmateCredentialSpec(inmate *plugin.Inmate, variable string) plugin.Credential {
+	for _, credential := range inmate.Auth.Credentials {
+		if credential.Variable == variable {
+			return credential
+		}
+	}
+	return plugin.Credential{}
+}
+
+func resolveInmateOAuthSpec(spec plugin.Credential,
+	options *inmateAuthSetOptions) (*vault.InmateOAuthSpec, error) {
+	isOAuth := spec.TokenURL != "" || options.tokenURL != "" ||
+		options.clientID != "" || options.clientSecretFromEnvironment != ""
+	if !isOAuth {
+		return nil, nil
+	}
+	tokenURL := options.tokenURL
+	if tokenURL == "" {
+		tokenURL = spec.TokenURL
+	}
+	if tokenURL == "" {
+		return nil, errors.New("OAuth credentials need `--token-url`")
+	}
+	if err := vault.ValidateOAuthTokenURL(tokenURL); err != nil {
+		return nil, err
+	}
+	clientID := options.clientID
+	if clientID == "" {
+		clientID = spec.ClientID
+	}
+	if clientID == "" && ui.StdinIsTerminal() {
+		line, err := promptOptionalLine("OAuth client ID (optional): ")
+		if err != nil {
+			return nil, err
+		}
+		clientID = line
+	}
+	clientSecret := ""
+	if options.clientSecretFromEnvironment != "" {
+		clientSecret = os.Getenv(options.clientSecretFromEnvironment)
+		if clientSecret == "" {
+			return nil, fmt.Errorf("%s is not set", options.clientSecretFromEnvironment)
+		}
+	} else if ui.StdinIsTerminal() {
+		secret, err := ui.ReadSecret("OAuth client secret (optional): ")
+		if err != nil {
+			return nil, err
+		}
+		clientSecret = secret
+	}
+	return &vault.InmateOAuthSpec{
+		TokenURL:     tokenURL,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+	}, nil
+}
+
+func promptOptionalLine(prompt string) (string, error) {
+	fmt.Fprint(os.Stderr, prompt)
+	reader := bufio.NewReader(os.Stdin)
+	line, err := reader.ReadString('\n')
+	if err != nil && line == "" {
+		return "", fmt.Errorf("cannot read input: %w", err)
+	}
+	return strings.TrimSpace(line), nil
+}
+
 func readInmateCredentialValue(variable, fromEnvironment string) (string, error) {
 	if fromEnvironment != "" {
 		value := os.Getenv(fromEnvironment)
@@ -282,6 +365,8 @@ type inmateCredentialJSON struct {
 	Inmate   string    `json:"inmate"`
 	Profile  string    `json:"profile"`
 	Variable string    `json:"variable"`
+	OAuth    bool      `json:"oauth,omitempty"`
+	TokenURL string    `json:"token_url,omitempty"`
 	Digest   string    `json:"digest"`
 	Created  time.Time `json:"created"`
 }
@@ -301,13 +386,18 @@ func runInmateAuthList(command *cobra.Command, asJSON bool) error {
 	if asJSON {
 		items := make([]inmateCredentialJSON, 0, len(credentials))
 		for _, credential := range credentials {
-			items = append(items, inmateCredentialJSON{
+			item := inmateCredentialJSON{
 				Inmate:   credential.Inmate,
 				Profile:  credential.Profile,
 				Variable: credential.Variable,
 				Digest:   vault.Digest(credential.Value),
 				Created:  credential.Created,
-			})
+			}
+			if credential.OAuth != nil {
+				item.OAuth = true
+				item.TokenURL = credential.OAuth.TokenURL
+			}
+			items = append(items, item)
 		}
 		encoded, err := json.MarshalIndent(items, "", "  ")
 		if err != nil {
@@ -325,17 +415,22 @@ func runInmateAuthList(command *cobra.Command, asJSON bool) error {
 	if err != nil {
 		return err
 	}
-	rows := [][]string{{"INMATE", "PROFILE", "VARIABLE", "DIGEST", "PROJECTS"}}
+	rows := [][]string{{"INMATE", "PROFILE", "VARIABLE", "TYPE", "DIGEST", "PROJECTS"}}
 	for _, credential := range credentials {
 		projectsColumn := "(default)"
 		if credential.Profile != vault.DefaultInmateProfile {
 			projectsColumn = strconv.Itoa(
 				len(boundProjects[inmateProfileKey(credential.Inmate, credential.Profile)]))
 		}
+		kind := "static"
+		if credential.OAuth != nil {
+			kind = "oauth"
+		}
 		rows = append(rows, []string{
 			credential.Inmate,
 			credential.Profile,
 			credential.Variable,
+			kind,
 			vault.Digest(credential.Value),
 			projectsColumn,
 		})

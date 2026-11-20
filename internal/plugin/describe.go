@@ -49,14 +49,37 @@ func describeAuth(inmate *Inmate, w io.Writer) {
 	if inmate.Auth == nil {
 		return
 	}
-	field(w, "upstream", inmate.Auth.Upstream+inmate.Auth.PathPrefix)
-	field(w, "base url", inmate.Auth.BaseURLVariable)
-	field(w, "token", inmate.Auth.TokenVariable)
-	for _, credential := range inmate.Auth.Credentials {
-		field(w, "credential", fmt.Sprintf("%s in %s%s",
-			credential.Variable, credential.Header,
-			describePrefix(credential.Prefix)))
+	if inmate.Auth.Upstream != "" {
+		field(w, "upstream", inmate.Auth.Upstream+inmate.Auth.PathPrefix)
 	}
+	if inmate.Auth.Intercept {
+		hosts := describeInterceptHosts(inmate.Auth)
+		field(w, "intercept", strings.Join(hosts, ", "))
+	}
+	if inmate.Auth.BaseURLVariable != "" {
+		field(w, "base url", inmate.Auth.BaseURLVariable)
+	}
+	if inmate.Auth.TokenVariable != "" {
+		field(w, "token", inmate.Auth.TokenVariable)
+	}
+	for _, credential := range inmate.Auth.Credentials {
+		detail := fmt.Sprintf("%s in %s%s",
+			credential.Variable, credential.Header,
+			describePrefix(credential.Prefix))
+		if credential.TokenURL != "" {
+			detail += fmt.Sprintf(" (oauth via %s)", credential.TokenURL)
+		}
+		field(w, "credential", detail)
+	}
+}
+
+func describeInterceptHosts(auth *AuthTable) []string {
+	var hosts []string
+	if auth.Upstream != "" {
+		hosts = append(hosts, auth.Upstream)
+	}
+	hosts = append(hosts, auth.InterceptHosts...)
+	return hosts
 }
 
 func describePrefix(prefix string) string {

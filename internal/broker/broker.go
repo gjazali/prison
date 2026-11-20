@@ -74,6 +74,7 @@ type Broker struct {
 
 	limiter *limits.RateLimiter
 	agent   *signing.Agent
+	oauth   *oauthCache
 
 	inmateTransport *relay.Transport
 	routeTransport  *relay.Transport
@@ -174,6 +175,7 @@ func newBroker(ctx context.Context, options Options) *Broker {
 		lastLoadErrors:    map[string]string{},
 		limiter:           limits.NewRateLimiter(now),
 		agent:             signing.NewAgent(options.SSHAuthSocket),
+		oauth:             newOAuthCache(options.UpstreamTLSConfig, now),
 		inmateTransport:   relay.NewTransport(inmateResponseHeaderTimeout, options.UpstreamTLSConfig),
 		routeTransport:    relay.NewTransport(routeResponseHeaderTimeout, options.UpstreamTLSConfig),
 		shutdownRequested: make(chan struct{}),

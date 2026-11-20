@@ -2,23 +2,28 @@ package broker
 
 import (
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"prison/internal/broker/brokerlog"
 	"prison/internal/broker/relay"
 	"prison/internal/state"
+	"prison/internal/vault"
 )
 
-func (broker *Broker) inmateHandler(projectID, inmate string) http.Handler {
+func (broker *Broker) inmateHandler(projectID, inmate,
+	overrideHost string, overridePort int, successOutcome string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
+		logHost := overrideHost
 		refuse := func(status int, message string) {
 			relay.WriteError(w, status, message)
 			broker.record(brokerlog.Entry{
 				Kind: brokerlog.KindInmate, Project: projectID, Inmate: inmate,
-				Method: r.Method, Path: r.URL.Path, Status: status,
+				Method: r.Method, Path: r.URL.Path, Host: logHost, Status: status,
 				Outcome: outcomeRefused, DurationMS: elapsedMilliseconds(started),
 			})
 		}
@@ -31,6 +36,18 @@ func (broker *Broker) inmateHandler(projectID, inmate string) http.Handler {
 		if route == nil {
 			refuse(http.StatusNotFound,
 				fmt.Sprintf("the %s inmate is not enabled for this project", inmate))
+			return
+		}
+		targetHost := ""
+		if overrideHost != "" {
+			targetHost = net.JoinHostPort(overrideHost, strconv.Itoa(overridePort))
+		} else if route.Upstream != "" {
+			targetHost = upstreamAddress(route.Upstream)
+			logHost, _ = vault.SplitUpstream(route.Upstream)
+		}
+		if targetHost == "" {
+			refuse(http.StatusNotFound,
+				fmt.Sprintf("the %s inmate has no upstream host", inmate))
 			return
 		}
 		prefix := route.PathPrefix
@@ -46,14 +63,14 @@ func (broker *Broker) inmateHandler(projectID, inmate string) http.Handler {
 			return
 		}
 		header, value, refusal, ok := broker.chooseInmateCredential(
-			snapshot, inmate, route.Credentials)
+			r.Context(), snapshot, inmate, route.Credentials)
 		if !ok {
 			refuse(http.StatusServiceUnavailable, refusal)
 			return
 		}
 		upstream := relay.Upstream{
 			Scheme:          "https",
-			Host:            upstreamAddress(route.Upstream),
+			Host:            targetHost,
 			Header:          header,
 			Value:           value,
 			DropCredentials: true,
@@ -62,10 +79,10 @@ func (broker *Broker) inmateHandler(projectID, inmate string) http.Handler {
 			func(result relay.Result) {
 				broker.record(brokerlog.Entry{
 					Kind: brokerlog.KindInmate, Project: projectID, Inmate: inmate,
-					Method: r.Method, Path: r.URL.Path, Status: result.Status,
+					Method: r.Method, Path: r.URL.Path, Host: logHost, Status: result.Status,
 					Model: result.Model, InputTokens: result.InputTokens,
 					OutputTokens: result.OutputTokens, Bytes: result.Bytes,
-					Outcome:    proxyOutcome(result, outcomeForwarded),
+					Outcome:    proxyOutcome(result, successOutcome),
 					DurationMS: elapsedMilliseconds(started), Error: result.Error,
 				})
 			})

@@ -96,9 +96,13 @@ func (s *Session) ExecEnvironment(ctx context.Context, client *control.Client,
 		if inmate.Auth == nil {
 			continue
 		}
-		collected.set(inmate.Auth.BaseURLVariable,
-			"http://"+protocol.InmateHost(inmate.Name))
-		collected.set(inmate.Auth.TokenVariable, s.PlaceholderToken())
+		if inmate.Auth.BaseURLVariable != "" {
+			collected.set(inmate.Auth.BaseURLVariable,
+				"http://"+protocol.InmateHost(inmate.Name))
+		}
+		if inmate.Auth.TokenVariable != "" {
+			collected.set(inmate.Auth.TokenVariable, s.PlaceholderToken())
+		}
 	}
 	if client != nil {
 		variables, err := client.ProjectEnvironment(ctx, s.Project.ID)
@@ -325,15 +329,19 @@ func (s *Session) Profile() *state.Profile {
 			continue
 		}
 		route := state.InmateRoute{
-			Name:       inmate.Name,
-			Upstream:   inmate.Auth.Upstream,
-			PathPrefix: inmate.Auth.PathPrefix,
+			Name:           inmate.Name,
+			Upstream:       inmate.Auth.Upstream,
+			Intercept:      inmate.Auth.Intercept,
+			InterceptHosts: append([]string(nil), inmate.Auth.InterceptHosts...),
+			PathPrefix:     inmate.Auth.PathPrefix,
 		}
 		for _, credential := range inmate.Auth.Credentials {
 			route.Credentials = append(route.Credentials, state.CredentialSpec{
 				Variable: credential.Variable,
 				Header:   credential.Header,
 				Prefix:   credential.Prefix,
+				TokenURL: credential.TokenURL,
+				ClientID: credential.ClientID,
 			})
 		}
 		profile.Inmates = append(profile.Inmates, route)

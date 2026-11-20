@@ -339,6 +339,52 @@ If a project is bound to a named profile whose credentials are later removed,
 the broker will refuse requests for that Inmate. The credentials won't fall back
 to the `default` profile.
 
+For Inmates that can authenticate with OAuth refresh tokens, use the
+`--token-url`, `--client-id`, and `--client-secret-from-environment` flags:
+
+<pre>
+prison inmate auth set <b><i>inmate_name</i></b> \
+  --from-environment <b><i>host_refresh_token_variable_name</i></b> \
+  --variable <b><i>inmate_defined_refresh_token_variable_name</i></b> \
+  --token-url <b><i>token_url</i></b> \
+  --client-id <b><i>client_id</i></b> \
+  --client-secret-from-environment <b><i>client_secret_variable_name</i></b>
+</pre>
+
+(If `host_refresh_token_variable_name` matches one of the Inmate's accepted
+credential name, then `--variable` can be omitted.)
+
+The broker will refresh short-lived access tokens on the host, cache them in
+memory, and save rotated refresh tokens back to the vault.
+
+But some Inmates may define something like this in their `inmate.toml`:
+
+```toml
+[auth]
+upstream = "cloudcode-pa.googleapis.com"
+intercept = true
+intercept_hosts = ["*.rep.googleapis.com"]
+path_prefix = "/"
+
+[[auth.credentials]]
+variable = "GOOGLE_OAUTH_REFRESH_TOKEN"
+header = "Authorization"
+prefix = "Bearer "
+token_url = "https://oauth2.googleapis.com/token"
+
+[[auth.credentials]]
+variable = "GEMINI_API_KEY"
+header = "x-goog-api-key"
+```
+
+Notice that some of the details required to set up authentication with OAuth are
+already defined. In that case, you can omit `--token-url` and `--client-id`. If
+the Inmate only has one entry in `[[auth.credentials]]`, you can also omit
+`--variable`. You can also not use `--from-environment` if you want to enter
+the refresh token interactively or pipe it via `stdin`. And the flag
+`--client-secret-from-environment` also supports interactive entry, so it's also
+optional (some public/PKCE OAuth clients may not need client secrets too).
+
 ## List of flags for all secret modes
 
 ### All modes

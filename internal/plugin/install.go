@@ -332,10 +332,21 @@ func approvalDescription(manifest *Manifest, fsys fs.FS) (string, error) {
 	if manifest.Auth != nil {
 		variables := make([]string, 0, len(manifest.Auth.Credentials))
 		for _, credential := range manifest.Auth.Credentials {
-			variables = append(variables, credential.Variable)
+			label := credential.Variable
+			if credential.TokenURL != "" {
+				label += " (oauth: " + credential.TokenURL + ")"
+			}
+			variables = append(variables, label)
 		}
-		field(text, "upstream", fmt.Sprintf("%s, credential from %s",
-			manifest.Auth.Upstream, strings.Join(variables, ", ")))
+		if manifest.Auth.Upstream != "" {
+			field(text, "upstream", fmt.Sprintf("%s, credential from %s",
+				manifest.Auth.Upstream, strings.Join(variables, ", ")))
+		} else {
+			field(text, "credentials", strings.Join(variables, ", "))
+		}
+		if manifest.Auth.Intercept {
+			field(text, "intercept", strings.Join(describeInterceptHosts(manifest.Auth), ", "))
+		}
 	}
 	if len(manifest.Egress.Hosts) > 0 {
 		field(text, "egress", "adds "+strings.Join(manifest.Egress.Hosts, ", "))

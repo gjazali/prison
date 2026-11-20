@@ -671,5 +671,9 @@ func copyAuthority(authority *Authority) *Authority {
 
 func copyInmateCredential(credential *InmateCredential) *InmateCredential {
 	copied := *credential
+	if credential.OAuth != nil {
+		oauth := *credential.OAuth
+		copied.OAuth = &oauth
+	}
 	return &copied
 }

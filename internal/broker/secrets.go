@@ -1,11 +1,13 @@
 package broker
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"sort"
 	"strconv"
+	"strings"
 
 	"prison/internal/broker/ca"
 	"prison/internal/broker/control"
@@ -37,6 +39,9 @@ func (broker *Broker) lockVault() {
 	broker.vault = nil
 	broker.authorities = nil
 	broker.vaultMutex.Unlock()
+	if broker.oauth != nil {
+		broker.oauth.clear()
+	}
 	if opened != nil {
 		opened.Lock()
 	}
@@ -119,15 +124,101 @@ func (broker *Broker) interceptRouteFor(snapshot *projectSnapshot, host string, 
 	return nil
 }
 
+type inmateInterceptTarget struct {
+	inmate   string
+	host     string
+	port     int
+	wildcard bool
+}
+
+func (target inmateInterceptTarget) matches(host string, port int) bool {
+	if target.port != port {
+		return false
+	}
+	if target.wildcard {
+		return host == target.host || strings.HasSuffix(host, "."+target.host)
+	}
+	return host == target.host
+}
+
+func (target inmateInterceptTarget) patternText() string {
+	host := target.host
+	if target.wildcard {
+		host = "*." + host
+	}
+	return host + ":" + strconv.Itoa(target.port)
+}
+
+func parseInmateInterceptEntry(inmate, entry string) (inmateInterceptTarget, bool) {
+	trimmed := strings.TrimSpace(entry)
+	if trimmed == "" {
+		return inmateInterceptTarget{}, false
+	}
+	wildcard := false
+	if strings.HasPrefix(trimmed, "*.") {
+		wildcard = true
+		trimmed = trimmed[2:]
+	}
+	host, port := vault.SplitUpstream(trimmed)
+	if host == "" {
+		return inmateInterceptTarget{}, false
+	}
+	return inmateInterceptTarget{
+		inmate:   inmate,
+		host:     host,
+		port:     port,
+		wildcard: wildcard,
+	}, true
+}
+
+func (broker *Broker) inmateInterceptTargets(snapshot *projectSnapshot) []inmateInterceptTarget {
+	if snapshot == nil || snapshot.profile == nil {
+		return nil
+	}
+	var targets []inmateInterceptTarget
+	for _, route := range snapshot.profile.Inmates {
+		if !route.Intercept {
+			continue
+		}
+		if route.Upstream != "" {
+			if target, ok := parseInmateInterceptEntry(route.Name, route.Upstream); ok {
+				targets = append(targets, target)
+			}
+		}
+		for _, entry := range route.InterceptHosts {
+			if target, ok := parseInmateInterceptEntry(route.Name, entry); ok {
+				targets = append(targets, target)
+			}
+		}
+	}
+	return targets
+}
+
+func (broker *Broker) interceptInmateFor(snapshot *projectSnapshot,
+	host string, port int) (inmate, authorityHost string, ok bool) {
+	for _, target := range broker.inmateInterceptTargets(snapshot) {
+		if target.matches(host, port) {
+			return target.inmate, target.host, true
+		}
+	}
+	return "", "", false
+}
+
 func (broker *Broker) interceptHosts(snapshot *projectSnapshot) []string {
 	seen := map[string]bool{}
 	var hosts []string
-	for _, secret := range broker.interceptRoutes(snapshot) {
-		host, _ := vault.SplitUpstream(secret.Route.Upstream)
+	add := func(host string) {
 		if host != "" && !seen[host] {
 			seen[host] = true
 			hosts = append(hosts, host)
 		}
+	}
+	for _, secret := range broker.interceptRoutes(snapshot) {
+		host, _ := vault.SplitUpstream(secret.Route.Upstream)
+		add(host)
+	}
+	for _, target := range broker.inmateInterceptTargets(snapshot) {
+		add(target.host)
 	}
 	sort.Strings(hosts)
 	return hosts
@@ -138,6 +229,12 @@ func (broker *Broker) allowListFor(snapshot *projectSnapshot) *policy.AllowList 
 	for _, secret := range broker.interceptRoutes(snapshot) {
 		host, port := vault.SplitUpstream(secret.Route.Upstream)
 		pattern, err := policy.ParsePattern(host + ":" + strconv.Itoa(port))
+		if err == nil {
+			intercepts = append(intercepts, pattern)
+		}
+	}
+	for _, target := range broker.inmateInterceptTargets(snapshot) {
+		pattern, err := policy.ParsePattern(target.patternText())
 		if err == nil {
 			intercepts = append(intercepts, pattern)
 		}
@@ -208,8 +305,9 @@ func (broker *Broker) inmateCredentialSummaries() []control.InmateCredential {
 }
 
 // A named profile does not fall back to the default profile when missing.
-func (broker *Broker) chooseInmateCredential(snapshot *projectSnapshot,
-	inmate string, specs []state.CredentialSpec) (header, value, refusal string, ok bool) {
+func (broker *Broker) chooseInmateCredential(ctx context.Context,
+	snapshot *projectSnapshot, inmate string,
+	specs []state.CredentialSpec) (header, value, refusal string, ok bool) {
 	profile := vault.DefaultInmateProfile
 	overridden := false
 	if snapshot != nil {
@@ -237,7 +335,43 @@ func (broker *Broker) chooseInmateCredential(snapshot *projectSnapshot,
 		if header == "" {
 			header = "Authorization"
 		}
-		return header, spec.Prefix + credential.Value, "", true
+		secretValue := credential.Value
+		tokenURL := spec.TokenURL
+		clientID := spec.ClientID
+		clientSecret := ""
+		if credential.OAuth != nil {
+			if credential.OAuth.TokenURL != "" {
+				tokenURL = credential.OAuth.TokenURL
+			}
+			if credential.OAuth.ClientID != "" {
+				clientID = credential.OAuth.ClientID
+			}
+			clientSecret = credential.OAuth.ClientSecret
+		}
+		if tokenURL != "" {
+			refreshed, rotated, err := broker.oauth.accessToken(ctx, oauthRequest{
+				inmate:       inmate,
+				profile:      profile,
+				variable:     spec.Variable,
+				tokenURL:     tokenURL,
+				clientID:     clientID,
+				clientSecret: clientSecret,
+				refreshToken: credential.Value,
+			})
+			if err != nil {
+				return "", "", fmt.Sprintf(
+					"cannot refresh OAuth token for the %s inmate: %v", inmate, err), false
+			}
+			if rotated != "" {
+				credential.Value = rotated
+				if _, err := opened.PutInmateCredential(credential); err != nil {
+					broker.logger.Printf("inmate %s: cannot save rotated refresh token: %v",
+						inmate, err)
+				}
+			}
+			secretValue = refreshed
+		}
+		return header, spec.Prefix + secretValue, "", true
 	}
 	if overridden {
 		return "", "", fmt.Sprintf(

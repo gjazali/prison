@@ -620,3 +620,33 @@ func TestHostNormalization(t *testing.T) {
 		})
 	}
 }
+
+func TestSubdomainLeafVerifiesAgainstParentAuthority(t *testing.T) {
+	clock := &fakeClock{now: time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)}
+	authorities := ca.New(newFakeStore(), clock.Now)
+
+	config, err := authorities.TLSConfigFor("rep.googleapis.com", "us-central1.rep.googleapis.com")
+	if err != nil {
+		t.Fatalf("TLSConfigFor: %v", err)
+	}
+	cert, err := config.GetCertificate(&tls.ClientHelloInfo{})
+	if err != nil {
+		t.Fatalf("GetCertificate: %v", err)
+	}
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		t.Fatalf("ParseCertificate: %v", err)
+	}
+	record, err := authorities.Authority("rep.googleapis.com")
+	if err != nil {
+		t.Fatalf("Authority: %v", err)
+	}
+	authority, _ := parseAuthority(t, record)
+	if _, err := leaf.Verify(verifyOptions(authority, "us-central1.rep.googleapis.com", clock.Now())); err != nil {
+		t.Fatalf("leaf verify: %v", err)
+	}
+
+	if _, err := authorities.TLSConfigFor("rep.googleapis.com", "evil.example.com"); !errors.Is(err, ca.ErrInvalidHost) {
+		t.Fatalf("TLSConfigFor outside parent = %v, want ErrInvalidHost", err)
+	}
+}

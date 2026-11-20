@@ -217,4 +217,36 @@ func TestInmateAuthEndToEnd(t *testing.T) {
 	if !strings.Contains(output, "removed claude-code credentials (profile work)") {
 		t.Fatalf("rm work output = %q", output)
 	}
+
+	t.Setenv("OAUTH_CLIENT_SECRET", "top-secret-client")
+	output, err = runWithPassphrase("inmate", "auth", "set", "claude-code",
+		"--profile", "oauth",
+		"--variable", "CLAUDE_CODE_OAUTH_TOKEN",
+		"--from-environment", "CLAUDE_CODE_OAUTH_TOKEN",
+		"--token-url", "https://oauth2.example/token",
+		"--client-id", "my-client-id",
+		"--client-secret-from-environment", "OAUTH_CLIENT_SECRET")
+	if err != nil {
+		t.Fatalf("set oauth: %v", err)
+	}
+	output, err = runWithPassphrase("inmate", "auth", "list", "--json")
+	if err != nil {
+		t.Fatalf("list oauth --json: %v", err)
+	}
+	if strings.Contains(output, "top-secret-client") || strings.Contains(output, "oauth-personal-value") {
+		t.Fatalf("list --json leaked secrets: %s", output)
+	}
+	var oauthListed []inmateCredentialJSON
+	if err := json.Unmarshal([]byte(output), &oauthListed); err != nil {
+		t.Fatalf("list oauth --json parse: %v", err)
+	}
+	foundOAuth := false
+	for _, item := range oauthListed {
+		if item.Profile == "oauth" && item.OAuth && item.TokenURL == "https://oauth2.example/token" {
+			foundOAuth = true
+		}
+	}
+	if !foundOAuth {
+		t.Fatalf("oauth entry missing in %+v", oauthListed)
+	}
 }

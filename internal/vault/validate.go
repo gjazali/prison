@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -205,6 +206,31 @@ func ValidateInmateCredential(credential *InmateCredential) error {
 	}
 	if strings.ContainsAny(credential.Value, "\r\n") {
 		return errors.New("an inmate credential cannot contain a newline")
+	}
+	if credential.OAuth != nil {
+		if err := ValidateOAuthTokenURL(credential.OAuth.TokenURL); err != nil {
+			return err
+		}
+		if strings.ContainsAny(credential.OAuth.ClientID, "\r\n") {
+			return errors.New("an OAuth client ID cannot contain a newline")
+		}
+		if strings.ContainsAny(credential.OAuth.ClientSecret, "\r\n") {
+			return errors.New("an OAuth client secret cannot contain a newline")
+		}
+	}
+	return nil
+}
+
+func ValidateOAuthTokenURL(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	if strings.ContainsAny(raw, "\r\n \t") {
+		return fmt.Errorf("token URL %q is not valid", raw)
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return fmt.Errorf("token URL %q must be an https:// URL", raw)
 	}
 	return nil
 }
