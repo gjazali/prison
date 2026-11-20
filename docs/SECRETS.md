@@ -361,20 +361,21 @@ But some Inmates may define something like this in their `inmate.toml`:
 
 ```toml
 [auth]
-upstream = "cloudcode-pa.googleapis.com"
+upstream = "api.example.com"
 intercept = true
-intercept_hosts = ["*.rep.googleapis.com"]
+intercept_hosts = ["*.regional.example.com"]
 path_prefix = "/"
 
 [[auth.credentials]]
-variable = "GOOGLE_OAUTH_REFRESH_TOKEN"
+variable = "EXAMPLE_OAUTH_REFRESH_TOKEN"
 header = "Authorization"
 prefix = "Bearer "
-token_url = "https://oauth2.googleapis.com/token"
+token_url = "https://auth.example.com/oauth/token"
+client_id = "example-cli-client"
 
 [[auth.credentials]]
-variable = "GEMINI_API_KEY"
-header = "x-goog-api-key"
+variable = "EXAMPLE_API_KEY"
+header = "x-api-key"
 ```
 
 Notice that some of the details required to set up authentication with OAuth are

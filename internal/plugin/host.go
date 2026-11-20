@@ -13,9 +13,10 @@ import (
 )
 
 type Placeholders struct {
-	PlaceholderTail string
-	Inmate          string
-	ProjectID       string
+	PlaceholderTail  string
+	Inmate           string
+	ProjectID        string
+	ActiveCredential string
 }
 
 func (p Placeholders) replacer() *strings.Replacer {
@@ -57,6 +58,10 @@ func RunHostOperations(
 		}
 	}
 	for _, operation := range host.JSON {
+		if len(operation.WhenCredential) > 0 &&
+			!contains(operation.WhenCredential, placeholders.ActiveCredential) {
+			continue
+		}
 		written, operationNotes, err := runJSONOperation(
 			root, destination, operation, placeholders)
 		notes = append(notes, operationNotes...)
@@ -176,6 +181,10 @@ func runJSONOperation(
 	if operation.From != "" && !found {
 		return false, notes, nil
 	}
+	if !found && len(operation.Set) == 0 && len(operation.Append) == 0 &&
+		len(operation.Keep) == 0 {
+		return false, notes, nil
+	}
 	if len(operation.Keep) > 0 {
 		var dropped []string
 		document, dropped = keepOnly(document, operation.Keep)
@@ -183,6 +192,9 @@ func runJSONOperation(
 			notes = append(notes, fmt.Sprintf("%s: dropped %s",
 				operation.To, strings.Join(dropped, ", ")))
 		}
+	}
+	for _, dotted := range operation.Remove {
+		removeDotted(document, dotted)
 	}
 	replacer := placeholders.replacer()
 	for _, dotted := range sortedKeys(operation.Set) {
@@ -222,6 +234,19 @@ func setDotted(document map[string]any, dotted, value, name string) []string {
 	container, notes := containerFor(document, segments[:len(segments)-1], dotted, name)
 	container[segments[len(segments)-1]] = value
 	return notes
+}
+
+func removeDotted(document map[string]any, dotted string) {
+	segments := strings.Split(dotted, ".")
+	container := document
+	for _, segment := range segments[:len(segments)-1] {
+		next, isObject := container[segment].(map[string]any)
+		if !isObject {
+			return
+		}
+		container = next
+	}
+	delete(container, segments[len(segments)-1])
 }
 
 func appendDotted(document map[string]any, dotted, value, name string) []string {

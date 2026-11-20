@@ -56,23 +56,26 @@ type CommandTable struct {
 
 // AuthTable describes the upstream that the broker proxies for the inmate.
 type AuthTable struct {
-	Upstream        string       `toml:"upstream"`
-	Intercept       bool         `toml:"intercept"`
-	InterceptHosts  []string     `toml:"intercept_hosts"`
-	PathPrefix      string       `toml:"path_prefix"`
-	BaseURLVariable string       `toml:"base_url_variable"`
-	TokenVariable   string       `toml:"token_variable"`
-	Credentials     []Credential `toml:"credentials"`
+	Upstream            string       `toml:"upstream"`
+	Intercept           bool         `toml:"intercept"`
+	InterceptHosts      []string     `toml:"intercept_hosts"`
+	PlaceholderTokenURL string       `toml:"placeholder_token_url"`
+	PathPrefix          string       `toml:"path_prefix"`
+	BaseURLVariable     string       `toml:"base_url_variable"`
+	TokenVariable       string       `toml:"token_variable"`
+	Credentials         []Credential `toml:"credentials"`
 }
 
-// Credential is one host variable that can hold the secret. Prison uses the
-// first credential that has a value.
+// Credential is one stored credential that can authenticate the inmate.
 type Credential struct {
-	Variable string `toml:"variable"`
-	Header   string `toml:"header"`
-	Prefix   string `toml:"prefix"`
-	TokenURL string `toml:"token_url"`
-	ClientID string `toml:"client_id"`
+	Variable        string         `toml:"variable"`
+	Header          string         `toml:"header"`
+	Prefix          string         `toml:"prefix"`
+	TokenURL        string         `toml:"token_url"`
+	ClientID        string         `toml:"client_id"`
+	BaseURLVariable string         `toml:"base_url_variable"`
+	TokenVariable   string         `toml:"token_variable"`
+	Environment     map[string]any `toml:"environment"`
 }
 
 type PersistTable struct {
@@ -98,11 +101,13 @@ type HostTable struct {
 }
 
 type HostJSONOperation struct {
-	From   string            `toml:"from"`
-	To     string            `toml:"to"`
-	Keep   []string          `toml:"keep"`
-	Append map[string]string `toml:"append"`
-	Set    map[string]string `toml:"set"`
+	From           string            `toml:"from"`
+	To             string            `toml:"to"`
+	Keep           []string          `toml:"keep"`
+	Append         map[string]string `toml:"append"`
+	Set            map[string]string `toml:"set"`
+	Remove         []string          `toml:"remove"`
+	WhenCredential []string          `toml:"when_credential"`
 }
 
 // HostEnvironmentSource copies one value from a host JSON file into the
@@ -120,13 +125,13 @@ var acceptedKeys = map[string][]string{
 	"inmate":           {"name", "description", "aliases"},
 	"image":            {"foundation", "dockerfile"},
 	"command":          {"run", "unsafe"},
-	"auth":             {"upstream", "intercept", "intercept_hosts", "path_prefix", "base_url_variable", "token_variable", "credentials"},
-	"auth.credentials": {"variable", "header", "prefix", "token_url", "client_id"},
+	"auth":             {"upstream", "intercept", "intercept_hosts", "placeholder_token_url", "path_prefix", "base_url_variable", "token_variable", "credentials"},
+	"auth.credentials": {"variable", "header", "prefix", "token_url", "client_id", "base_url_variable", "token_variable", "environment"},
 	"persist":          {"paths"},
 	"egress":           {"hosts"},
 	"hooks":            {"box_command"},
 	"host":             {"root", "copy", "json", "environment"},
-	"host.json":        {"from", "to", "keep", "append", "set"},
+	"host.json":        {"from", "to", "keep", "append", "set", "remove", "when_credential"},
 	"host.environment": {"name", "from", "path", "pattern"},
 }
 
@@ -205,13 +210,8 @@ func (m *Manifest) applyDefaults() {
 	if m.Image.Dockerfile == "" {
 		m.Image.Dockerfile = DefaultDockerfile
 	}
-	if m.Auth != nil {
-		if m.Auth.PathPrefix == "" {
-			m.Auth.PathPrefix = "/"
-		}
-		if len(m.Auth.InterceptHosts) > 0 {
-			m.Auth.Intercept = true
-		}
+	if m.Auth != nil && m.Auth.PathPrefix == "" {
+		m.Auth.PathPrefix = "/"
 	}
 	if m.Host.Root == "" && len(m.Persist.Paths) > 0 {
 		first := m.Persist.Paths[0]
@@ -326,19 +326,30 @@ func (m *Manifest) validateAuth() error {
 			return fmt.Errorf("auth.intercept_hosts %q wildcard domain is too broad", host)
 		}
 	}
+	if m.Auth.PlaceholderTokenURL != "" {
+		if err := requireLine(m.Auth.PlaceholderTokenURL, "auth.placeholder_token_url"); err != nil {
+			return err
+		}
+		parsed, err := url.Parse(m.Auth.PlaceholderTokenURL)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Path == "" {
+			return fmt.Errorf("auth.placeholder_token_url %q must be an https:// URL with a path",
+				m.Auth.PlaceholderTokenURL)
+		}
+	}
 	if !strings.HasPrefix(m.Auth.PathPrefix, "/") {
 		return fmt.Errorf("auth.path_prefix %q must start with `/`", m.Auth.PathPrefix)
 	}
 	if err := requireLine(m.Auth.PathPrefix, "auth.path_prefix"); err != nil {
 		return err
 	}
+	hasIntercept := m.Auth.Intercept || len(m.Auth.InterceptHosts) > 0
 	for _, named := range []struct {
 		value, key string
 	}{
 		{m.Auth.BaseURLVariable, "auth.base_url_variable"},
 		{m.Auth.TokenVariable, "auth.token_variable"},
 	} {
-		if named.value == "" && m.Auth.Intercept {
+		if named.value == "" && hasIntercept {
 			continue
 		}
 		if err := requireLine(named.value, named.key); err != nil {
@@ -380,6 +391,30 @@ func (m *Manifest) validateAuth() error {
 			}
 			if err := requireLine(credential.ClientID, "auth.credentials.client_id"); err != nil {
 				return err
+			}
+		}
+		for _, named := range []struct {
+			value, key string
+		}{
+			{credential.BaseURLVariable, "auth.credentials.base_url_variable"},
+			{credential.TokenVariable, "auth.credentials.token_variable"},
+		} {
+			if named.value == "" {
+				continue
+			}
+			if err := requireLine(named.value, named.key); err != nil {
+				return err
+			}
+			if err := config.ValidateEnvironmentName(named.value); err != nil {
+				return fmt.Errorf("%s: %w", named.key, err)
+			}
+		}
+		for _, name := range sortedKeys(credential.Environment) {
+			if err := config.ValidateBoxEnvironmentName(name); err != nil {
+				return fmt.Errorf("auth.credentials.environment: %w", err)
+			}
+			if _, err := environmentValueText(credential.Environment[name]); err != nil {
+				return fmt.Errorf("auth.credentials.environment.%s %w", name, err)
 			}
 		}
 	}
@@ -480,13 +515,27 @@ func validateJSONOperation(operation HostJSONOperation) error {
 		return err
 	}
 	if operation.From == "" && len(operation.Keep) == 0 &&
-		len(operation.Set) == 0 && len(operation.Append) == 0 {
+		len(operation.Set) == 0 && len(operation.Append) == 0 &&
+		len(operation.Remove) == 0 {
 		return fmt.Errorf("the [[host.json]] entry for %q is empty. "+
-			"Add `from`, `keep`, `set`, or `append`", operation.To)
+			"Add `from`, `keep`, `set`, `append`, or `remove`", operation.To)
 	}
 	for _, key := range operation.Keep {
 		if err := requireLine(key, "host.json.keep"); err != nil {
 			return err
+		}
+	}
+	for _, dotted := range operation.Remove {
+		if err := requireDottedPath(dotted, "host.json.remove"); err != nil {
+			return err
+		}
+	}
+	for _, variable := range operation.WhenCredential {
+		if err := requireLine(variable, "host.json.when_credential"); err != nil {
+			return err
+		}
+		if err := config.ValidateEnvironmentName(variable); err != nil {
+			return fmt.Errorf("host.json.when_credential: %w", err)
 		}
 	}
 	for _, named := range []struct {
@@ -528,9 +577,17 @@ func validateEnvironmentSource(source HostEnvironmentSource) error {
 }
 
 func (m *Manifest) EnvironmentAssignments() []string {
-	assignments := make([]string, 0, len(m.Environment))
-	for _, name := range sortedKeys(m.Environment) {
-		text, err := environmentValueText(m.Environment[name])
+	return mapEnvironmentAssignments(m.Environment)
+}
+
+func (c Credential) EnvironmentAssignments() []string {
+	return mapEnvironmentAssignments(c.Environment)
+}
+
+func mapEnvironmentAssignments(values map[string]any) []string {
+	assignments := make([]string, 0, len(values))
+	for _, name := range sortedKeys(values) {
+		text, err := environmentValueText(values[name])
 		if err != nil {
 			continue
 		}

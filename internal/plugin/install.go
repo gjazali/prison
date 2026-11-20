@@ -344,8 +344,11 @@ func approvalDescription(manifest *Manifest, fsys fs.FS) (string, error) {
 		} else {
 			field(text, "credentials", strings.Join(variables, ", "))
 		}
-		if manifest.Auth.Intercept {
-			field(text, "intercept", strings.Join(describeInterceptHosts(manifest.Auth), ", "))
+		if hosts := describeInterceptHosts(manifest.Auth); len(hosts) > 0 {
+			field(text, "intercept", strings.Join(hosts, ", "))
+		}
+		if manifest.Auth.PlaceholderTokenURL != "" {
+			field(text, "oauth stub", manifest.Auth.PlaceholderTokenURL)
 		}
 	}
 	if len(manifest.Egress.Hosts) > 0 {

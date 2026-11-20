@@ -101,6 +101,10 @@ func (broker *Broker) serveConnect(w http.ResponseWriter, r *http.Request,
 		broker.serveInmateIntercept(w, snapshot, inmate, authorityHost, host, port, started)
 		return
 	}
+	if inmate, tokenPath, ok := broker.placeholderTokenInmateFor(snapshot, host, port); ok {
+		broker.servePlaceholderToken(w, snapshot, inmate, tokenPath, host, port, started)
+		return
+	}
 	decision := broker.allowListFor(snapshot).Allows(host, port)
 	if !decision.Allowed {
 		broker.refuseDestination(w, snapshot, client, r.Method, host, port,
@@ -192,6 +196,36 @@ func (broker *Broker) serveInmateIntercept(w http.ResponseWriter, snapshot *proj
 	}
 	broker.serveTLSTunnel(conn, tlsConfig,
 		broker.inmateHandler(snapshot.id, inmate, host, port, "intercepted"))
+}
+
+func (broker *Broker) servePlaceholderToken(w http.ResponseWriter, snapshot *projectSnapshot,
+	inmate, tokenPath, host string, port int, started time.Time) {
+	refuse := func(message string) {
+		relay.WriteError(w, http.StatusBadGateway, message)
+		broker.record(brokerlog.Entry{
+			Kind: brokerlog.KindInmate, Project: snapshot.id, Inmate: inmate,
+			Method: http.MethodConnect, Host: host, Port: port,
+			Outcome: outcomeRefused, Status: http.StatusBadGateway,
+			DurationMS: elapsedMilliseconds(started),
+		})
+	}
+	authorities := broker.currentAuthorities()
+	if authorities == nil {
+		refuse(fmt.Sprintf("no certificate authority to terminate TLS for %s "+
+			"on the %s inmate. Unlock the vault", host, inmate))
+		return
+	}
+	tlsConfig, err := authorities.TLSConfig(host)
+	if err != nil {
+		refuse(fmt.Sprintf("cannot make a certificate for %s: %v", host, err))
+		return
+	}
+	conn, err := acknowledgeTunnel(w)
+	if err != nil {
+		return
+	}
+	broker.serveTLSTunnel(conn, tlsConfig,
+		broker.placeholderTokenHandler(snapshot.id, inmate, host, tokenPath))
 }
 
 func (broker *Broker) serveAbsoluteURI(w http.ResponseWriter, r *http.Request,

@@ -17,6 +17,7 @@ import (
 	"prison/internal/isolator"
 	"prison/internal/plugin"
 	"prison/internal/state"
+	"prison/internal/vault"
 )
 
 const GuestHome = "/home/dev"
@@ -92,16 +93,30 @@ func (s *Session) ExecEnvironment(ctx context.Context, client *control.Client,
 			collected.add(assignment)
 		}
 	}
+	activeCredentials := s.ActiveInmateCredentials(ctx, client)
 	for _, inmate := range s.Inmates {
 		if inmate.Auth == nil {
 			continue
 		}
-		if inmate.Auth.BaseURLVariable != "" {
-			collected.set(inmate.Auth.BaseURLVariable,
+		baseURLVariable := inmate.Auth.BaseURLVariable
+		tokenVariable := inmate.Auth.TokenVariable
+		if active := activeCredentials[inmate.Name]; active != nil {
+			if active.BaseURLVariable != "" {
+				baseURLVariable = active.BaseURLVariable
+			}
+			if active.TokenVariable != "" {
+				tokenVariable = active.TokenVariable
+			}
+			for _, assignment := range active.EnvironmentAssignments() {
+				collected.add(assignment)
+			}
+		}
+		if baseURLVariable != "" {
+			collected.set(baseURLVariable,
 				"http://"+protocol.InmateHost(inmate.Name))
 		}
-		if inmate.Auth.TokenVariable != "" {
-			collected.set(inmate.Auth.TokenVariable, s.PlaceholderToken())
+		if tokenVariable != "" {
+			collected.set(tokenVariable, s.PlaceholderToken())
 		}
 	}
 	if client != nil {
@@ -329,11 +344,12 @@ func (s *Session) Profile() *state.Profile {
 			continue
 		}
 		route := state.InmateRoute{
-			Name:           inmate.Name,
-			Upstream:       inmate.Auth.Upstream,
-			Intercept:      inmate.Auth.Intercept,
-			InterceptHosts: append([]string(nil), inmate.Auth.InterceptHosts...),
-			PathPrefix:     inmate.Auth.PathPrefix,
+			Name:                inmate.Name,
+			Upstream:            inmate.Auth.Upstream,
+			Intercept:           inmate.Auth.Intercept,
+			InterceptHosts:      append([]string(nil), inmate.Auth.InterceptHosts...),
+			PlaceholderTokenURL: inmate.Auth.PlaceholderTokenURL,
+			PathPrefix:          inmate.Auth.PathPrefix,
 		}
 		for _, credential := range inmate.Auth.Credentials {
 			route.Credentials = append(route.Credentials, state.CredentialSpec{
@@ -382,4 +398,39 @@ func (s *Session) CredentialVariables() []string {
 		}
 	}
 	return variables
+}
+
+func (s *Session) ActiveInmateCredentials(ctx context.Context,
+	client *control.Client) map[string]*plugin.Credential {
+	active := map[string]*plugin.Credential{}
+	if client == nil {
+		return active
+	}
+	status, err := client.Status(ctx)
+	if err != nil || status.Vault != control.VaultUnlocked {
+		return active
+	}
+	profiles, _ := s.Project.InmateAuthProfiles()
+	held := map[string]bool{}
+	for _, credential := range status.InmateCredentials {
+		held[vault.InmateCredentialKey(
+			credential.Inmate, credential.Profile, credential.Variable)] = true
+	}
+	for _, inmate := range s.Inmates {
+		if inmate.Auth == nil {
+			continue
+		}
+		profile := vault.DefaultInmateProfile
+		if selected := profiles[inmate.Name]; selected != "" {
+			profile = selected
+		}
+		for index := range inmate.Auth.Credentials {
+			spec := &inmate.Auth.Credentials[index]
+			if held[vault.InmateCredentialKey(inmate.Name, profile, spec.Variable)] {
+				active[inmate.Name] = spec
+				break
+			}
+		}
+	}
+	return active
 }

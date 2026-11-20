@@ -120,6 +120,14 @@ func runInmateSession(name string, yolo bool) error {
 	if err := requireCommandInBox(ctx, current, inmate, line); err != nil {
 		return err
 	}
+	if inmate.Auth != nil {
+		if client := liveBrokerClient(ctx, current); client != nil {
+			if err := current.EnsureVaultUnlockedForInmate(ctx, client, inmate); err != nil {
+				return err
+			}
+			current.SyncInmateHost(ctx, client, inmate)
+		}
+	}
 	return execInBox(ctx, current, "exec "+line, true)
 }
 

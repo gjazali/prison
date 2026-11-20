@@ -52,9 +52,11 @@ func describeAuth(inmate *Inmate, w io.Writer) {
 	if inmate.Auth.Upstream != "" {
 		field(w, "upstream", inmate.Auth.Upstream+inmate.Auth.PathPrefix)
 	}
-	if inmate.Auth.Intercept {
-		hosts := describeInterceptHosts(inmate.Auth)
+	if hosts := describeInterceptHosts(inmate.Auth); len(hosts) > 0 {
 		field(w, "intercept", strings.Join(hosts, ", "))
+	}
+	if inmate.Auth.PlaceholderTokenURL != "" {
+		field(w, "oauth stub", inmate.Auth.PlaceholderTokenURL)
 	}
 	if inmate.Auth.BaseURLVariable != "" {
 		field(w, "base url", inmate.Auth.BaseURLVariable)
@@ -75,7 +77,7 @@ func describeAuth(inmate *Inmate, w io.Writer) {
 
 func describeInterceptHosts(auth *AuthTable) []string {
 	var hosts []string
-	if auth.Upstream != "" {
+	if auth.Intercept && auth.Upstream != "" {
 		hosts = append(hosts, auth.Upstream)
 	}
 	hosts = append(hosts, auth.InterceptHosts...)

@@ -373,3 +373,61 @@ func TestRunHostOperationsSetsAndReplaces(t *testing.T) {
 		t.Errorf("notes = %v, want one \"was not an object\" note", notes)
 	}
 }
+
+func TestRunHostOperationsWhenCredentialAndRemove(t *testing.T) {
+	home := t.TempDir()
+	persisted := t.TempDir()
+	inmate := &Inmate{Name: "example", Manifest: Manifest{Host: HostTable{
+		JSON: []HostJSONOperation{
+			{
+				To:             "example/settings.json",
+				WhenCredential: []string{"EXAMPLE_API_KEY"},
+				Set:            map[string]string{"authMode": "api-key"},
+			},
+			{
+				To:             "example/settings.json",
+				WhenCredential: []string{"EXAMPLE_OAUTH_REFRESH_TOKEN"},
+				Remove:         []string{"authMode"},
+			},
+			{
+				To:             "placeholder-oauth.json",
+				WhenCredential: []string{"EXAMPLE_OAUTH_REFRESH_TOKEN"},
+				Set: map[string]string{
+					"type":          "authorized_user",
+					"refresh_token": "prison-placeholder-${project_id}",
+				},
+			},
+		},
+	}}}
+
+	_, _, err := RunHostOperations(inmate, home, persisted, Placeholders{
+		ProjectID:        "aabbccddeeff",
+		ActiveCredential: "EXAMPLE_API_KEY",
+	})
+	if err != nil {
+		t.Fatalf("API key run: %v", err)
+	}
+	settings := readJSON(t, filepath.Join(persisted, "example", "settings.json"))
+	if settings["authMode"] != "api-key" {
+		t.Fatalf("authMode = %v, want api-key", settings["authMode"])
+	}
+	if _, err := os.Stat(filepath.Join(persisted, "placeholder-oauth.json")); !os.IsNotExist(err) {
+		t.Fatalf("placeholder-oauth.json exists in API key mode")
+	}
+
+	_, _, err = RunHostOperations(inmate, home, persisted, Placeholders{
+		ProjectID:        "aabbccddeeff",
+		ActiveCredential: "EXAMPLE_OAUTH_REFRESH_TOKEN",
+	})
+	if err != nil {
+		t.Fatalf("OAuth run: %v", err)
+	}
+	settings = readJSON(t, filepath.Join(persisted, "example", "settings.json"))
+	if _, present := settings["authMode"]; present {
+		t.Fatalf("authMode survived OAuth mode: %v", settings)
+	}
+	oauthFile := readJSON(t, filepath.Join(persisted, "placeholder-oauth.json"))
+	if oauthFile["type"] != "authorized_user" || oauthFile["refresh_token"] != "prison-placeholder-aabbccddeeff" {
+		t.Fatalf("placeholder-oauth.json = %v", oauthFile)
+	}
+}

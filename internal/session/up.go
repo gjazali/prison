@@ -138,7 +138,7 @@ func (s *Session) Up(ctx context.Context) (*UpResult, error) {
 	s.publishPorts(ctx, client, ports)
 
 	s.ensureHostRoute(ctx, network)
-	s.runHostOperations()
+	s.runHostOperations(ctx, client)
 	s.runBoxCommands(ctx)
 
 	if err := s.runSetup(ctx, false); err != nil {
@@ -442,19 +442,71 @@ func (s *Session) createOrStartBox(
 	return true, nil
 }
 
+func (s *Session) EnsureVaultUnlockedForInmate(ctx context.Context,
+	client *control.Client, inmate *plugin.Inmate) error {
+	if inmate == nil || inmate.Auth == nil || !vault.Exists(s.Root.VaultFile()) {
+		return nil
+	}
+	status, err := client.Status(ctx)
+	if err != nil || status.Vault == control.VaultUnlocked {
+		return err
+	}
+	if !ui.StdinIsTerminal() {
+		ui.Warn("the vault is locked. Run `prison secret unlock`")
+		return nil
+	}
+	passphrase, err := ui.ReadSecret("vault passphrase: ")
+	if err != nil {
+		return err
+	}
+	if passphrase == "" {
+		ui.Warn("the vault stays locked")
+		return nil
+	}
+	return client.Unlock(ctx, passphrase)
+}
+
+func (s *Session) SyncInmateHost(ctx context.Context,
+	client *control.Client, inmate *plugin.Inmate) {
+	if inmate == nil || (len(inmate.Host.Copy) == 0 && len(inmate.Host.JSON) == 0) {
+		return
+	}
+	active := s.ActiveInmateCredentials(ctx, client)
+	activeVariable := ""
+	if cred := active[inmate.Name]; cred != nil {
+		activeVariable = cred.Variable
+	}
+	_, _, err := plugin.RunHostOperations(inmate, s.HomeDir,
+		s.PersistedHome(inmate), plugin.Placeholders{
+			PlaceholderTail:  s.PlaceholderTail(),
+			Inmate:           inmate.Name,
+			ProjectID:        s.Project.ID,
+			ActiveCredential: activeVariable,
+		})
+	if err != nil {
+		ui.Warn("%s: %v", inmate.Name, err)
+	}
+}
+
 // runHostOperations only warns on failure because the box works without the
 // host configuration.
-func (s *Session) runHostOperations() {
+func (s *Session) runHostOperations(ctx context.Context, client *control.Client) {
 	placeholderTail := s.PlaceholderTail()
+	active := s.ActiveInmateCredentials(ctx, client)
 	for _, inmate := range s.Inmates {
 		if len(inmate.Host.Copy) == 0 && len(inmate.Host.JSON) == 0 {
 			continue
 		}
+		activeVariable := ""
+		if cred := active[inmate.Name]; cred != nil {
+			activeVariable = cred.Variable
+		}
 		carried, notes, err := plugin.RunHostOperations(inmate, s.HomeDir,
 			s.PersistedHome(inmate), plugin.Placeholders{
-				PlaceholderTail: placeholderTail,
-				Inmate:          inmate.Name,
-				ProjectID:       s.Project.ID,
+				PlaceholderTail:  placeholderTail,
+				Inmate:           inmate.Name,
+				ProjectID:        s.Project.ID,
+				ActiveCredential: activeVariable,
 			})
 		if err != nil {
 			ui.Warn("%s: %v", inmate.Name, err)

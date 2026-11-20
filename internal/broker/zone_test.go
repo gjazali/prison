@@ -878,6 +878,92 @@ func TestInmateInterceptTLSAndHTTP2(t *testing.T) {
 	}
 }
 
+func TestInmatePlaceholderTokenEndpoint(t *testing.T) {
+	h := newHarness(t, func(h *harness, options *Options) {
+		profile := &state.Profile{
+			Inmates: []state.InmateRoute{{
+				Name:                "agy",
+				PlaceholderTokenURL: "https://oauth2.test:8443/token",
+				Credentials: []state.CredentialSpec{{
+					Variable: "GOOGLE_OAUTH_REFRESH_TOKEN",
+					Header:   "Authorization",
+					Prefix:   "Bearer ",
+					TokenURL: "https://oauth2.googleapis.com/token",
+				}},
+			}},
+		}
+		if err := h.project.SaveProfile(profile); err != nil {
+			t.Fatal(err)
+		}
+		h.putInmateCredentials(&vault.InmateCredential{
+			Inmate:   "agy",
+			Variable: "GOOGLE_OAUTH_REFRESH_TOKEN",
+			Value:    "real-rt",
+		})
+	})
+	h.unlock()
+
+	api := h.tunnelClient(protocol.BrokerHost)
+	hostsResp, err := api.Get("http://x" + protocol.PathHosts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostsBody, _ := io.ReadAll(hostsResp.Body)
+	hostsResp.Body.Close()
+	if !strings.Contains(string(hostsBody), "oauth2.test:8443\n") {
+		t.Fatalf("/v1/hosts = %q", hostsBody)
+	}
+
+	certResp, err := api.Get("http://x" + protocol.PathCertificates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, _ := io.ReadAll(certResp.Body)
+	certResp.Body.Close()
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(bundle) {
+		t.Fatal("bundle has no certificates")
+	}
+
+	client := h.proxiedClient(pool)
+	resp, err := client.Post("https://oauth2.test:8443/token",
+		"application/x-www-form-urlencoded",
+		strings.NewReader("grant_type=refresh_token&refresh_token=prison-placeholder"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 200 ||
+		tokenResp.AccessToken != "prison-placeholder-"+h.project.ID ||
+		tokenResp.TokenType != "Bearer" || tokenResp.ExpiresIn != 3600 {
+		t.Fatalf("status=%d tokenResp=%+v", resp.StatusCode, tokenResp)
+	}
+
+	getResp, err := client.Get("https://oauth2.test:8443/token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectRefusal(t, getResp, http.StatusMethodNotAllowed, "only POST is accepted")
+
+	otherResp, err := client.Post("https://oauth2.test:8443/other", "text/plain", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectRefusal(t, otherResp, http.StatusNotFound, "path is not proxied")
+
+	h.waitForEntry(brokerlog.KindInmate, func(entry brokerlog.Entry) bool {
+		return entry.Outcome == "placeholder-token" && entry.Inmate == "agy"
+	})
+}
+
 func TestSignHMAC(t *testing.T) {
 	h := newHarness(t, func(h *harness, options *Options) {
 		h.createVault(&vault.Secret{

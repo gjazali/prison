@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -177,10 +178,7 @@ func (broker *Broker) inmateInterceptTargets(snapshot *projectSnapshot) []inmate
 	}
 	var targets []inmateInterceptTarget
 	for _, route := range snapshot.profile.Inmates {
-		if !route.Intercept {
-			continue
-		}
-		if route.Upstream != "" {
+		if route.Intercept && route.Upstream != "" {
 			if target, ok := parseInmateInterceptEntry(route.Name, route.Upstream); ok {
 				targets = append(targets, target)
 			}
@@ -192,6 +190,50 @@ func (broker *Broker) inmateInterceptTargets(snapshot *projectSnapshot) []inmate
 		}
 	}
 	return targets
+}
+
+type placeholderTokenTarget struct {
+	inmate string
+	host   string
+	port   int
+	path   string
+}
+
+func (broker *Broker) placeholderTokenTargets(snapshot *projectSnapshot) []placeholderTokenTarget {
+	if snapshot == nil || snapshot.profile == nil {
+		return nil
+	}
+	var targets []placeholderTokenTarget
+	for _, route := range snapshot.profile.Inmates {
+		if route.PlaceholderTokenURL == "" {
+			continue
+		}
+		parsed, err := url.Parse(route.PlaceholderTokenURL)
+		if err != nil || parsed.Host == "" || parsed.Path == "" {
+			continue
+		}
+		host, port := vault.SplitUpstream(parsed.Host)
+		if host == "" {
+			continue
+		}
+		targets = append(targets, placeholderTokenTarget{
+			inmate: route.Name,
+			host:   host,
+			port:   port,
+			path:   parsed.Path,
+		})
+	}
+	return targets
+}
+
+func (broker *Broker) placeholderTokenInmateFor(snapshot *projectSnapshot,
+	host string, port int) (inmate, tokenPath string, ok bool) {
+	for _, target := range broker.placeholderTokenTargets(snapshot) {
+		if target.host == host && target.port == port {
+			return target.inmate, target.path, true
+		}
+	}
+	return "", "", false
 }
 
 func (broker *Broker) interceptInmateFor(snapshot *projectSnapshot,
@@ -220,6 +262,9 @@ func (broker *Broker) interceptHosts(snapshot *projectSnapshot) []string {
 	for _, target := range broker.inmateInterceptTargets(snapshot) {
 		add(target.host)
 	}
+	for _, target := range broker.placeholderTokenTargets(snapshot) {
+		add(target.host)
+	}
 	sort.Strings(hosts)
 	return hosts
 }
@@ -235,6 +280,12 @@ func (broker *Broker) allowListFor(snapshot *projectSnapshot) *policy.AllowList 
 	}
 	for _, target := range broker.inmateInterceptTargets(snapshot) {
 		pattern, err := policy.ParsePattern(target.patternText())
+		if err == nil {
+			intercepts = append(intercepts, pattern)
+		}
+	}
+	for _, target := range broker.placeholderTokenTargets(snapshot) {
+		pattern, err := policy.ParsePattern(target.host + ":" + strconv.Itoa(target.port))
 		if err == nil {
 			intercepts = append(intercepts, pattern)
 		}
@@ -302,6 +353,43 @@ func (broker *Broker) inmateCredentialSummaries() []control.InmateCredential {
 		})
 	}
 	return summaries
+}
+
+func (broker *Broker) hasInmateCredential(snapshot *projectSnapshot,
+	inmate string, specs []state.CredentialSpec) (refusal string, ok bool) {
+	profile := vault.DefaultInmateProfile
+	overridden := false
+	if snapshot != nil {
+		if selected := snapshot.inmateProfiles[inmate]; selected != "" &&
+			selected != vault.DefaultInmateProfile {
+			profile = selected
+			overridden = true
+		}
+	}
+	opened := broker.currentVault()
+	if opened == nil {
+		if !vault.Exists(broker.root.VaultFile()) {
+			return fmt.Sprintf(
+				"no credential for the %s inmate. Run `prison secret init`, "+
+					"then `prison inmate auth set %s`", inmate, inmate), false
+		}
+		return "the vault is locked. Run `prison secret unlock`", false
+	}
+	for _, spec := range specs {
+		credential, found := opened.InmateCredential(inmate, profile, spec.Variable)
+		if found && credential.Value != "" {
+			return "", true
+		}
+	}
+	if overridden {
+		return fmt.Sprintf(
+			"no credential for the %s inmate in profile %q. "+
+				"Run `prison inmate auth set %s --profile %s`",
+			inmate, profile, inmate, profile), false
+	}
+	return fmt.Sprintf(
+		"no credential for the %s inmate. Run `prison inmate auth set %s`",
+		inmate, inmate), false
 }
 
 // A named profile does not fall back to the default profile when missing.

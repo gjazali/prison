@@ -90,6 +90,55 @@ func (broker *Broker) inmateHandler(projectID, inmate,
 	})
 }
 
+func (broker *Broker) placeholderTokenHandler(projectID, inmate,
+	host, expectedPath string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started := time.Now()
+		refuse := func(status int, message string) {
+			relay.WriteError(w, status, message)
+			broker.record(brokerlog.Entry{
+				Kind: brokerlog.KindInmate, Project: projectID, Inmate: inmate,
+				Method: r.Method, Path: r.URL.Path, Host: host, Status: status,
+				Outcome: outcomeRefused, DurationMS: elapsedMilliseconds(started),
+			})
+		}
+		if r.URL.Path != expectedPath {
+			refuse(http.StatusNotFound, "path is not proxied")
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			refuse(http.StatusMethodNotAllowed, "only POST is accepted")
+			return
+		}
+		snapshot := broker.snapshot(projectID)
+		if snapshot == nil {
+			refuse(http.StatusNotFound, errNoProject.Error())
+			return
+		}
+		route := findInmateRoute(snapshot.profile, inmate)
+		if route == nil {
+			refuse(http.StatusNotFound,
+				fmt.Sprintf("the %s inmate is not enabled for this project", inmate))
+			return
+		}
+		if refusal, ok := broker.hasInmateCredential(snapshot, inmate, route.Credentials); !ok {
+			refuse(http.StatusServiceUnavailable, refusal)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"access_token": "prison-placeholder-" + projectID,
+			"token_type":   "Bearer",
+			"expires_in":   3600,
+		})
+		broker.record(brokerlog.Entry{
+			Kind: brokerlog.KindInmate, Project: projectID, Inmate: inmate,
+			Method: r.Method, Path: r.URL.Path, Host: host, Status: http.StatusOK,
+			Outcome: "placeholder-token", DurationMS: elapsedMilliseconds(started),
+		})
+	})
+}
+
 func findInmateRoute(profile *state.Profile, inmate string) *state.InmateRoute {
 	if profile == nil {
 		return nil
