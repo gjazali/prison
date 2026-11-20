@@ -26,6 +26,11 @@ const PersistedRoot = "/home/dev"
 
 const DefaultDockerfile = "Dockerfile"
 
+const (
+	AuthModeBroker = "broker"
+	AuthModeInBox  = "in-box"
+)
+
 type Manifest struct {
 	Inmate      InmateTable    `toml:"inmate"`
 	Image       ImageTable     `toml:"image"`
@@ -56,14 +61,20 @@ type CommandTable struct {
 
 // AuthTable describes the upstream that the broker proxies for the inmate.
 type AuthTable struct {
-	Upstream            string       `toml:"upstream"`
-	Intercept           bool         `toml:"intercept"`
-	InterceptHosts      []string     `toml:"intercept_hosts"`
-	PlaceholderTokenURL string       `toml:"placeholder_token_url"`
-	PathPrefix          string       `toml:"path_prefix"`
-	BaseURLVariable     string       `toml:"base_url_variable"`
-	TokenVariable       string       `toml:"token_variable"`
-	Credentials         []Credential `toml:"credentials"`
+	Upstream            string          `toml:"upstream"`
+	Intercept           bool            `toml:"intercept"`
+	InterceptHosts      []string        `toml:"intercept_hosts"`
+	PlaceholderTokenURL string          `toml:"placeholder_token_url"`
+	PathPrefix          string          `toml:"path_prefix"`
+	BaseURLVariable     string          `toml:"base_url_variable"`
+	TokenVariable       string          `toml:"token_variable"`
+	Credentials         []Credential    `toml:"credentials"`
+	InBox               *InBoxAuthTable `toml:"in_box"`
+}
+
+// InBoxAuthTable holds settings used when the user opts into in-box login.
+type InBoxAuthTable struct {
+	Hosts []string `toml:"hosts"`
 }
 
 // Credential is one stored credential that can authenticate the inmate.
@@ -107,6 +118,7 @@ type HostJSONOperation struct {
 	Append         map[string]string `toml:"append"`
 	Set            map[string]string `toml:"set"`
 	Remove         []string          `toml:"remove"`
+	WhenAuth       string            `toml:"when_auth"`
 	WhenCredential []string          `toml:"when_credential"`
 }
 
@@ -125,13 +137,14 @@ var acceptedKeys = map[string][]string{
 	"inmate":           {"name", "description", "aliases"},
 	"image":            {"foundation", "dockerfile"},
 	"command":          {"run", "unsafe"},
-	"auth":             {"upstream", "intercept", "intercept_hosts", "placeholder_token_url", "path_prefix", "base_url_variable", "token_variable", "credentials"},
+	"auth":             {"upstream", "intercept", "intercept_hosts", "placeholder_token_url", "path_prefix", "base_url_variable", "token_variable", "credentials", "in_box"},
+	"auth.in_box":      {"hosts"},
 	"auth.credentials": {"variable", "header", "prefix", "token_url", "client_id", "base_url_variable", "token_variable", "environment"},
 	"persist":          {"paths"},
 	"egress":           {"hosts"},
 	"hooks":            {"box_command"},
 	"host":             {"root", "copy", "json", "environment"},
-	"host.json":        {"from", "to", "keep", "append", "set", "remove", "when_credential"},
+	"host.json":        {"from", "to", "keep", "append", "set", "remove", "when_auth", "when_credential"},
 	"host.environment": {"name", "from", "path", "pattern"},
 }
 
@@ -418,6 +431,16 @@ func (m *Manifest) validateAuth() error {
 			}
 		}
 	}
+	if m.Auth.InBox != nil {
+		for _, host := range m.Auth.InBox.Hosts {
+			if err := requireLine(host, "auth.in_box.hosts"); err != nil {
+				return err
+			}
+			if _, err := policy.ParsePattern(host); err != nil {
+				return fmt.Errorf("auth.in_box.hosts: %w", err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -529,6 +552,16 @@ func validateJSONOperation(operation HostJSONOperation) error {
 		if err := requireDottedPath(dotted, "host.json.remove"); err != nil {
 			return err
 		}
+	}
+	if operation.WhenAuth != "" &&
+		operation.WhenAuth != AuthModeBroker &&
+		operation.WhenAuth != AuthModeInBox {
+		return fmt.Errorf("host.json.when_auth %q must be %q or %q",
+			operation.WhenAuth, AuthModeBroker, AuthModeInBox)
+	}
+	if operation.WhenAuth == AuthModeInBox && len(operation.WhenCredential) > 0 {
+		return fmt.Errorf("host.json.when_credential cannot be used with when_auth = %q",
+			AuthModeInBox)
 	}
 	for _, variable := range operation.WhenCredential {
 		if err := requireLine(variable, "host.json.when_credential"); err != nil {

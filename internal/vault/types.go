@@ -17,7 +17,10 @@ const (
 
 const ReservedSecretName = "prison"
 
-const DefaultInmateProfile = "default"
+const (
+	DefaultInmateProfile = "default"
+	InBoxInmateProfile   = "in-box"
+)
 
 type Document struct {
 	Version           int                          `json:"version"`

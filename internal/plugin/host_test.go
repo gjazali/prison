@@ -431,3 +431,43 @@ func TestRunHostOperationsWhenCredentialAndRemove(t *testing.T) {
 		t.Fatalf("placeholder-oauth.json = %v", oauthFile)
 	}
 }
+
+func TestRunHostOperationsWhenAuth(t *testing.T) {
+	home := t.TempDir()
+	persisted := t.TempDir()
+	inmate := &Inmate{Name: "example", Manifest: Manifest{Host: HostTable{
+		JSON: []HostJSONOperation{
+			{
+				To:       "example/settings.json",
+				WhenAuth: AuthModeBroker,
+				Set:      map[string]string{"modelProvider": "gemini"},
+			},
+			{
+				To:       "example/settings.json",
+				WhenAuth: AuthModeInBox,
+				Remove:   []string{"modelProvider"},
+			},
+		},
+	}}}
+
+	if _, _, err := RunHostOperations(inmate, home, persisted, Placeholders{
+		ProjectID: "aabbccddeeff",
+	}); err != nil {
+		t.Fatalf("broker run: %v", err)
+	}
+	settings := readJSON(t, filepath.Join(persisted, "example", "settings.json"))
+	if settings["modelProvider"] != "gemini" {
+		t.Fatalf("modelProvider = %v, want gemini", settings["modelProvider"])
+	}
+
+	if _, _, err := RunHostOperations(inmate, home, persisted, Placeholders{
+		ProjectID:  "aabbccddeeff",
+		InBoxLogin: true,
+	}); err != nil {
+		t.Fatalf("in-box run: %v", err)
+	}
+	settings = readJSON(t, filepath.Join(persisted, "example", "settings.json"))
+	if _, present := settings["modelProvider"]; present {
+		t.Fatalf("modelProvider survived in-box login: %v", settings)
+	}
+}

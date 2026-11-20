@@ -350,6 +350,9 @@ func approvalDescription(manifest *Manifest, fsys fs.FS) (string, error) {
 		if manifest.Auth.PlaceholderTokenURL != "" {
 			field(text, "oauth stub", manifest.Auth.PlaceholderTokenURL)
 		}
+		if manifest.Auth.InBox != nil && len(manifest.Auth.InBox.Hosts) > 0 {
+			field(text, "in-box", "adds "+strings.Join(manifest.Auth.InBox.Hosts, ", "))
+		}
 	}
 	if len(manifest.Egress.Hosts) > 0 {
 		field(text, "egress", "adds "+strings.Join(manifest.Egress.Hosts, ", "))

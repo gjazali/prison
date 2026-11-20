@@ -93,9 +93,10 @@ func (s *Session) ExecEnvironment(ctx context.Context, client *control.Client,
 			collected.add(assignment)
 		}
 	}
+	authProfiles := s.inmateAuthProfiles()
 	activeCredentials := s.ActiveInmateCredentials(ctx, client)
 	for _, inmate := range s.Inmates {
-		if inmate.Auth == nil {
+		if inmate.Auth == nil || authProfiles[inmate.Name] == vault.InBoxInmateProfile {
 			continue
 		}
 		baseURLVariable := inmate.Auth.BaseURLVariable
@@ -339,8 +340,9 @@ func joinPorts(ports [][2]int) string {
 
 func (s *Session) Profile() *state.Profile {
 	profile := &state.Profile{Written: time.Now()}
+	authProfiles := s.inmateAuthProfiles()
 	for _, inmate := range s.Inmates {
-		if inmate.Auth == nil {
+		if inmate.Auth == nil || authProfiles[inmate.Name] == vault.InBoxInmateProfile {
 			continue
 		}
 		route := state.InmateRoute{
@@ -374,6 +376,12 @@ func (s *Session) Profile() *state.Profile {
 		for _, host := range inmate.Egress.Hosts {
 			addHost(host)
 		}
+		if inmate.Auth != nil && inmate.Auth.InBox != nil &&
+			authProfiles[inmate.Name] == vault.InBoxInmateProfile {
+			for _, host := range inmate.Auth.InBox.Hosts {
+				addHost(host)
+			}
+		}
 	}
 	if s.Config != nil {
 		for _, host := range s.Config.Egress.Hosts {
@@ -381,6 +389,18 @@ func (s *Session) Profile() *state.Profile {
 		}
 	}
 	return profile
+}
+
+func (s *Session) inmateAuthProfiles() map[string]string {
+	if s.Project == nil {
+		return nil
+	}
+	profiles, _ := s.Project.InmateAuthProfiles()
+	return profiles
+}
+
+func (s *Session) InmateUsesInBoxLogin(name string) bool {
+	return s.inmateAuthProfiles()[name] == vault.InBoxInmateProfile
 }
 
 func (s *Session) CredentialVariables() []string {
@@ -410,14 +430,14 @@ func (s *Session) ActiveInmateCredentials(ctx context.Context,
 	if err != nil || status.Vault != control.VaultUnlocked {
 		return active
 	}
-	profiles, _ := s.Project.InmateAuthProfiles()
+	profiles := s.inmateAuthProfiles()
 	held := map[string]bool{}
 	for _, credential := range status.InmateCredentials {
 		held[vault.InmateCredentialKey(
 			credential.Inmate, credential.Profile, credential.Variable)] = true
 	}
 	for _, inmate := range s.Inmates {
-		if inmate.Auth == nil {
+		if inmate.Auth == nil || profiles[inmate.Name] == vault.InBoxInmateProfile {
 			continue
 		}
 		profile := vault.DefaultInmateProfile

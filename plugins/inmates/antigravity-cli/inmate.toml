@@ -26,6 +26,21 @@ header = "x-goog-api-key"
 variable = "GOOGLE_API_KEY"
 header = "x-goog-api-key"
 
+[auth.in_box]
+hosts = [
+  "accounts.google.com",
+  "oauth2.googleapis.com",
+  "www.googleapis.com",
+  "people.googleapis.com",
+  "cloudcode-pa.googleapis.com",
+  "daily-cloudcode-pa.googleapis.com",
+  "*.rep.googleapis.com",
+  "aicode.googleapis.com",
+  "businessaicode.googleapis.com",
+  "aiplatform.googleapis.com",
+  "antigravity.google",
+]
+
 [persist]
 paths = ["/home/dev/.gemini"]
 
@@ -48,4 +63,10 @@ keep = ["agentMode", "toolPermission", "artifactReviewPolicy",
 
 [[host.json]]
 to = "antigravity-cli/settings.json"
+when_auth = "broker"
 set = { modelProvider = "gemini" }
+
+[[host.json]]
+to = "antigravity-cli/settings.json"
+when_auth = "in-box"
+remove = ["modelProvider"]

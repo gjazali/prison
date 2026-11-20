@@ -20,6 +20,9 @@ variable = "OPENCODE_API_KEY"
 header = "Authorization"
 prefix = "Bearer "
 
+[auth.in_box]
+hosts = ["opencode.ai"]
+
 [persist]
 paths = ["/home/dev/.config/opencode", "/home/dev/.local/share/opencode"]
 

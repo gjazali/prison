@@ -69,6 +69,7 @@ func (s *Session) Up(ctx context.Context) (*UpResult, error) {
 	if sudo {
 		ui.Warn("this box has sudo")
 	}
+	s.warnAboutInBoxLogin()
 
 	ports, err := s.ResolvePorts()
 	if err != nil {
@@ -301,12 +302,23 @@ func (s *Session) BuildImage(ctx context.Context) (string, error) {
 }
 
 func (s *Session) hasAuthInmates() bool {
+	profiles := s.inmateAuthProfiles()
 	for _, inmate := range s.Inmates {
-		if inmate.Auth != nil {
+		if inmate.Auth != nil && profiles[inmate.Name] != vault.InBoxInmateProfile {
 			return true
 		}
 	}
 	return false
+}
+
+func (s *Session) warnAboutInBoxLogin() {
+	profiles := s.inmateAuthProfiles()
+	for _, inmate := range s.Inmates {
+		if inmate.Auth != nil && profiles[inmate.Name] == vault.InBoxInmateProfile {
+			ui.Warn("the %s inmate uses in-box login; credentials stored in this box can be read by code inside it",
+				inmate.Name)
+		}
+	}
 }
 
 func (s *Session) pushProfile(
@@ -323,9 +335,10 @@ func (s *Session) reportMissingInmateCredentials(
 	if !s.hasAuthInmates() {
 		return
 	}
+	profiles := s.inmateAuthProfiles()
 	if !vault.Exists(s.Root.VaultFile()) {
 		for _, inmate := range s.Inmates {
-			if inmate.Auth == nil {
+			if inmate.Auth == nil || profiles[inmate.Name] == vault.InBoxInmateProfile {
 				continue
 			}
 			ui.Warn("no credential for the %s inmate. Run `prison secret init`, "+
@@ -337,14 +350,13 @@ func (s *Session) reportMissingInmateCredentials(
 	if err != nil || status.Vault != control.VaultUnlocked {
 		return
 	}
-	profiles, _ := s.Project.InmateAuthProfiles()
 	held := map[string]bool{}
 	for _, credential := range status.InmateCredentials {
 		held[vault.InmateCredentialKey(
 			credential.Inmate, credential.Profile, credential.Variable)] = true
 	}
 	for _, inmate := range s.Inmates {
-		if inmate.Auth == nil {
+		if inmate.Auth == nil || profiles[inmate.Name] == vault.InBoxInmateProfile {
 			continue
 		}
 		profile := vault.DefaultInmateProfile
@@ -444,7 +456,8 @@ func (s *Session) createOrStartBox(
 
 func (s *Session) EnsureVaultUnlockedForInmate(ctx context.Context,
 	client *control.Client, inmate *plugin.Inmate) error {
-	if inmate == nil || inmate.Auth == nil || !vault.Exists(s.Root.VaultFile()) {
+	if inmate == nil || inmate.Auth == nil || s.InmateUsesInBoxLogin(inmate.Name) ||
+		!vault.Exists(s.Root.VaultFile()) {
 		return nil
 	}
 	status, err := client.Status(ctx)
@@ -471,10 +484,13 @@ func (s *Session) SyncInmateHost(ctx context.Context,
 	if inmate == nil || (len(inmate.Host.Copy) == 0 && len(inmate.Host.JSON) == 0) {
 		return
 	}
-	active := s.ActiveInmateCredentials(ctx, client)
+	inBox := s.InmateUsesInBoxLogin(inmate.Name)
 	activeVariable := ""
-	if cred := active[inmate.Name]; cred != nil {
-		activeVariable = cred.Variable
+	if !inBox {
+		active := s.ActiveInmateCredentials(ctx, client)
+		if cred := active[inmate.Name]; cred != nil {
+			activeVariable = cred.Variable
+		}
 	}
 	_, _, err := plugin.RunHostOperations(inmate, s.HomeDir,
 		s.PersistedHome(inmate), plugin.Placeholders{
@@ -482,6 +498,7 @@ func (s *Session) SyncInmateHost(ctx context.Context,
 			Inmate:           inmate.Name,
 			ProjectID:        s.Project.ID,
 			ActiveCredential: activeVariable,
+			InBoxLogin:       inBox,
 		})
 	if err != nil {
 		ui.Warn("%s: %v", inmate.Name, err)
@@ -492,14 +509,18 @@ func (s *Session) SyncInmateHost(ctx context.Context,
 // host configuration.
 func (s *Session) runHostOperations(ctx context.Context, client *control.Client) {
 	placeholderTail := s.PlaceholderTail()
+	authProfiles := s.inmateAuthProfiles()
 	active := s.ActiveInmateCredentials(ctx, client)
 	for _, inmate := range s.Inmates {
 		if len(inmate.Host.Copy) == 0 && len(inmate.Host.JSON) == 0 {
 			continue
 		}
+		inBox := authProfiles[inmate.Name] == vault.InBoxInmateProfile
 		activeVariable := ""
-		if cred := active[inmate.Name]; cred != nil {
-			activeVariable = cred.Variable
+		if !inBox {
+			if cred := active[inmate.Name]; cred != nil {
+				activeVariable = cred.Variable
+			}
 		}
 		carried, notes, err := plugin.RunHostOperations(inmate, s.HomeDir,
 			s.PersistedHome(inmate), plugin.Placeholders{
@@ -507,6 +528,7 @@ func (s *Session) runHostOperations(ctx context.Context, client *control.Client)
 				Inmate:           inmate.Name,
 				ProjectID:        s.Project.ID,
 				ActiveCredential: activeVariable,
+				InBoxLogin:       inBox,
 			})
 		if err != nil {
 			ui.Warn("%s: %v", inmate.Name, err)

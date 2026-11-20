@@ -178,6 +178,9 @@ func (broker *Broker) inmateInterceptTargets(snapshot *projectSnapshot) []inmate
 	}
 	var targets []inmateInterceptTarget
 	for _, route := range snapshot.profile.Inmates {
+		if snapshot.inmateProfiles[route.Name] == vault.InBoxInmateProfile {
+			continue
+		}
 		if route.Intercept && route.Upstream != "" {
 			if target, ok := parseInmateInterceptEntry(route.Name, route.Upstream); ok {
 				targets = append(targets, target)
@@ -205,6 +208,9 @@ func (broker *Broker) placeholderTokenTargets(snapshot *projectSnapshot) []place
 	}
 	var targets []placeholderTokenTarget
 	for _, route := range snapshot.profile.Inmates {
+		if snapshot.inmateProfiles[route.Name] == vault.InBoxInmateProfile {
+			continue
+		}
 		if route.PlaceholderTokenURL == "" {
 			continue
 		}
@@ -362,6 +368,9 @@ func (broker *Broker) hasInmateCredential(snapshot *projectSnapshot,
 	if snapshot != nil {
 		if selected := snapshot.inmateProfiles[inmate]; selected != "" &&
 			selected != vault.DefaultInmateProfile {
+			if selected == vault.InBoxInmateProfile {
+				return fmt.Sprintf("the %s inmate uses in-box login", inmate), false
+			}
 			profile = selected
 			overridden = true
 		}
@@ -401,6 +410,9 @@ func (broker *Broker) chooseInmateCredential(ctx context.Context,
 	if snapshot != nil {
 		if selected := snapshot.inmateProfiles[inmate]; selected != "" &&
 			selected != vault.DefaultInmateProfile {
+			if selected == vault.InBoxInmateProfile {
+				return "", "", fmt.Sprintf("the %s inmate uses in-box login", inmate), false
+			}
 			profile = selected
 			overridden = true
 		}

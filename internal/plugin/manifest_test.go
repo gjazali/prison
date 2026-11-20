@@ -190,3 +190,50 @@ client_id = "client-123"
 		}
 	}
 }
+
+func TestParseManifestInBoxAuthAndWhenAuth(t *testing.T) {
+	manifest, err := ParseManifest([]byte(minimalManifest + `
+[auth]
+upstream = "api.example.com"
+base_url_variable = "EXAMPLE_BASE_URL"
+token_variable = "EXAMPLE_KEY"
+
+[[auth.credentials]]
+variable = "EXAMPLE_KEY"
+header = "x-api-key"
+
+[auth.in_box]
+hosts = ["accounts.example.com", "*.regional.example.com"]
+
+[[host.json]]
+to = "settings.json"
+when_auth = "broker"
+set = { mode = "api" }
+
+[[host.json]]
+to = "settings.json"
+when_auth = "in-box"
+remove = ["mode"]
+`))
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	if manifest.Auth.InBox == nil || len(manifest.Auth.InBox.Hosts) != 2 {
+		t.Fatalf("auth.in_box = %+v", manifest.Auth.InBox)
+	}
+	if manifest.Host.JSON[0].WhenAuth != AuthModeBroker ||
+		manifest.Host.JSON[1].WhenAuth != AuthModeInBox {
+		t.Fatalf("host.json = %+v", manifest.Host.JSON)
+	}
+
+	bad := []string{
+		"[auth]\nupstream = \"api.example.com\"\nbase_url_variable = \"U\"\ntoken_variable = \"K\"\n[[auth.credentials]]\nvariable = \"K\"\nheader = \"Authorization\"\n[auth.in_box]\nhosts = [\"https://bad.example.com\"]\n",
+		"[[host.json]]\nto = \"settings.json\"\nwhen_auth = \"other\"\nset = { a = \"b\" }\n",
+		"[[host.json]]\nto = \"settings.json\"\nwhen_auth = \"in-box\"\nwhen_credential = [\"K\"]\nset = { a = \"b\" }\n",
+	}
+	for index, fragment := range bad {
+		if _, err := ParseManifest([]byte(minimalManifest + fragment)); err == nil {
+			t.Errorf("bad case %d: ParseManifest = nil, want an error", index)
+		}
+	}
+}

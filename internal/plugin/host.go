@@ -17,6 +17,7 @@ type Placeholders struct {
 	Inmate           string
 	ProjectID        string
 	ActiveCredential string
+	InBoxLogin       bool
 }
 
 func (p Placeholders) replacer() *strings.Replacer {
@@ -58,8 +59,11 @@ func RunHostOperations(
 		}
 	}
 	for _, operation := range host.JSON {
+		if !matchesAuthMode(operation.WhenAuth, placeholders.InBoxLogin) {
+			continue
+		}
 		if len(operation.WhenCredential) > 0 &&
-			!contains(operation.WhenCredential, placeholders.ActiveCredential) {
+			(placeholders.InBoxLogin || !contains(operation.WhenCredential, placeholders.ActiveCredential)) {
 			continue
 		}
 		written, operationNotes, err := runJSONOperation(
@@ -73,6 +77,19 @@ func RunHostOperations(
 		}
 	}
 	return carried, notes, nil
+}
+
+func matchesAuthMode(whenAuth string, inBox bool) bool {
+	switch whenAuth {
+	case "":
+		return true
+	case AuthModeBroker:
+		return !inBox
+	case AuthModeInBox:
+		return inBox
+	default:
+		return false
+	}
 }
 
 func contains(values []string, wanted string) bool {

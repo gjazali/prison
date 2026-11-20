@@ -28,6 +28,9 @@ variable = "CLAUDE_CODE_OAUTH_TOKEN"
 header = "Authorization"
 prefix = "Bearer "
 
+[auth.in_box]
+hosts = ["claude.ai", "platform.claude.com"]
+
 [persist]
 # `CLAUDE_CONFIG_DIR` keeps all configuration and telemetry in one persisted
 # directory.
@@ -53,6 +56,7 @@ keep = ["model", "theme", "effortLevel", "outputStyle",
 # This approves the placeholder `ANTHROPIC_API_KEY` so that the session does not
 # complain about an unknown key.
 to = ".claude.json"
+when_auth = "broker"
 append = { "customApiKeyResponses.approved" = "${placeholder_tail}" }
 
 [[host.environment]]

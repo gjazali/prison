@@ -1079,3 +1079,55 @@ func TestKeysWithoutAgent(t *testing.T) {
 	response, _ = api.Get("http://x/v1/nothing")
 	expectRefusal(t, response, http.StatusNotFound, unknownPathMessage)
 }
+
+func TestInmateInBoxLoginDisablesBrokerRouteAndIntercept(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "ok")
+	}))
+	t.Cleanup(upstream.Close)
+	_, port, _ := strings.Cut(hostPort(upstream), ":")
+
+	h := newHarness(t, func(h *harness, options *Options) {
+		h.createVault()
+		h.putInmateCredentials(&vault.InmateCredential{
+			Inmate: "agy", Profile: vault.DefaultInmateProfile,
+			Variable: "GEMINI_API_KEY", Value: "secret-gemini-key",
+		})
+		if err := h.project.SaveProfile(&state.Profile{
+			Inmates: []state.InmateRoute{{
+				Name:       "agy",
+				Upstream:   "localhost:" + port,
+				Intercept:  true,
+				PathPrefix: "/",
+				Credentials: []state.CredentialSpec{{
+					Variable: "GEMINI_API_KEY",
+					Header:   "x-goog-api-key",
+				}},
+			}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.project.SetInmateAuthProfile("agy", vault.InBoxInmateProfile); err != nil {
+			t.Fatal(err)
+		}
+	})
+	h.unlock()
+
+	api := h.tunnelClient(protocol.BrokerHost)
+	hostsResponse, err := api.Get("http://x" + protocol.PathHosts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts, _ := io.ReadAll(hostsResponse.Body)
+	hostsResponse.Body.Close()
+	if strings.Contains(string(hosts), "localhost:"+port) {
+		t.Fatalf("/v1/hosts still contains intercepted host: %q", hosts)
+	}
+
+	client := h.tunnelClient(protocol.InmateHost("agy"))
+	response, err := client.Get("http://x/v1/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectRefusal(t, response, http.StatusServiceUnavailable, "the agy inmate uses in-box login")
+}

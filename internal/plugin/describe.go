@@ -73,6 +73,9 @@ func describeAuth(inmate *Inmate, w io.Writer) {
 		}
 		field(w, "credential", detail)
 	}
+	if inmate.Auth.InBox != nil && len(inmate.Auth.InBox.Hosts) > 0 {
+		field(w, "in-box", strings.Join(inmate.Auth.InBox.Hosts, ", "))
+	}
 }
 
 func describeInterceptHosts(auth *AuthTable) []string {

@@ -386,6 +386,46 @@ the refresh token interactively or pipe it via `stdin`. And the flag
 `--client-secret-from-environment` also supports interactive entry, so it's also
 optional (some public/PKCE OAuth clients may not need client secrets too).
 
+### In-box login (not secure)
+
+Some Inmates have subscription login flows, such as interactive browser OAuth,
+that cannot be proxied through the vault (see the last point detailed in
+[1904eb7](https://github.com/gjazali/prison/commit/1904eb7d5e9931cf304834ddfe740e40c07e8d29)).
+A good example of this kind of Inmate is Google's Antigravity CLI. (To use the
+Google AI subscription quota, you can't authenticate with `GEMINI_API_KEY` or
+`GOOGLE_API_KEY`.)
+
+If you're willing to log in directly inside a project's box instead of using
+brokered credentials, opt in for that project by doing:
+
+<pre>
+cd <b><i>project_directory</i></b>
+prison inmate auth in-box <b><i>inmate_name</i></b>
+prison up
+</pre>
+
+Do note that with this option, the Inmate credentials will be stored in-box,
+which means that it'll be accessible to the Inmates inside. (Making sure that
+Inmates can't directly access any credentials, including their own, is a large
+part of what makes Prison secure. So avoid using this if you can.)
+
+When in-box login is enabled for an Inmate:
+
+- Prison will not inject placeholder credentials, do base URL overrides, or 
+  perform TLS interception for that Inmate.
+- Any extra hosts declared under `[auth.in_box]` in the Inmate's `inmate.toml`
+  will be unioned with the project's egress allowlist.
+- `[[host.json]]` rules with `when_auth = "broker"` will be skipped, and rules
+  with `when_auth = "in-box"` will run instead.
+
+To switch the project back to using brokered credentials from the vault, run:
+
+<pre>
+cd <b><i>project_directory</i></b>
+prison inmate auth clear <b><i>inmate_name</i></b>
+prison up
+</pre>
+
 ## List of flags for all secret modes
 
 ### All modes

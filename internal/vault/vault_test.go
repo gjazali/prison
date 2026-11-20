@@ -686,6 +686,7 @@ func TestValidateInmateCredential(t *testing.T) {
 		nil,
 		{Inmate: "Bad", Variable: "KEY", Value: "v"},
 		{Inmate: "claude", Profile: "Bad_Profile", Variable: "KEY", Value: "v"},
+		{Inmate: "claude", Profile: InBoxInmateProfile, Variable: "KEY", Value: "v"},
 		{Inmate: "claude", Profile: "work", Variable: "1BAD", Value: "v"},
 		{Inmate: "claude", Profile: "work", Variable: "KEY", Value: ""},
 		{Inmate: "claude", Profile: "work", Variable: "KEY", Value: "line1\nline2"},

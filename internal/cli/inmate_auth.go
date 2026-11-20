@@ -37,6 +37,7 @@ func newInmateAuthCommand() *cobra.Command {
 		newInmateAuthListCommand(),
 		newInmateAuthRemoveCommand(),
 		newInmateAuthUseCommand(),
+		newInmateAuthInBoxCommand(),
 		newInmateAuthClearCommand(),
 	)
 	return group
@@ -127,6 +128,17 @@ func newInmateAuthUseCommand() *cobra.Command {
 		Args:  cobra.ExactArgs(2),
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runInmateAuthUse(arguments[0], arguments[1])
+		},
+	}
+}
+
+func newInmateAuthInBoxCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "in-box <inmate>",
+		Short: "log in to an inmate directly inside this project's box",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			return runInmateAuthInBox(arguments[0])
 		},
 	}
 }
@@ -517,6 +529,10 @@ func runInmateAuthUse(inmateArg, profile string) error {
 	if inmate.Auth == nil || len(inmate.Auth.Credentials) == 0 {
 		return fmt.Errorf("the %s inmate has no [auth] configuration", inmate.Name)
 	}
+	if profile == vault.InBoxInmateProfile {
+		return fmt.Errorf("%q is reserved for in-box login. Run `prison inmate auth in-box %s`",
+			profile, inmate.Name)
+	}
 	if err := vault.ValidateInmateProfile(profile); err != nil {
 		return err
 	}
@@ -524,6 +540,8 @@ func runInmateAuthUse(inmateArg, profile string) error {
 	if err != nil {
 		return err
 	}
+	previousProfiles, _ := project.InmateAuthProfiles()
+	wasInBox := previousProfiles[inmate.Name] == vault.InBoxInmateProfile
 	if profile != vault.DefaultInmateProfile {
 		opened, err := openSecretVault(environment.Root)
 		if err != nil {
@@ -542,11 +560,42 @@ func runInmateAuthUse(inmateArg, profile string) error {
 		return err
 	}
 	reloadRunningBroker(environment.Root)
+	suffix := ""
+	if wasInBox {
+		suffix = ". Run `prison up` to apply"
+	}
 	if profile == vault.DefaultInmateProfile {
-		ui.Progress("using default profile for %s in %s", inmate.Name, project.ID)
+		ui.Progress("using default profile for %s in %s%s", inmate.Name, project.ID, suffix)
 		return nil
 	}
-	ui.Progress("using profile %s for %s in %s", profile, inmate.Name, project.ID)
+	ui.Progress("using profile %s for %s in %s%s", profile, inmate.Name, project.ID, suffix)
+	return nil
+}
+
+func runInmateAuthInBox(inmateArg string) error {
+	environment, err := loadEnvironment()
+	if err != nil {
+		return err
+	}
+	inmate, err := environment.Registry.Get(inmateArg)
+	if err != nil {
+		return fmt.Errorf("%w. Run `prison inmate list`", err)
+	}
+	if inmate.Auth == nil {
+		return fmt.Errorf("the %s inmate has no [auth] configuration", inmate.Name)
+	}
+	project, err := currentSecretProject(environment)
+	if err != nil {
+		return err
+	}
+	if err := project.SetInmateAuthProfile(inmate.Name, vault.InBoxInmateProfile); err != nil {
+		return err
+	}
+	reloadRunningBroker(environment.Root)
+	ui.Warn("the %s inmate will authenticate directly inside this box; "+
+		"credentials stored in this box can be read by code inside it", inmate.Name)
+	ui.Progress("using in-box login for %s in %s. Run `prison up` to apply",
+		inmate.Name, project.ID)
 	return nil
 }
 
@@ -571,10 +620,16 @@ func runInmateAuthClear(inmateArg string) error {
 		ui.Progress("this project already uses the default profile for %s", inmateName)
 		return nil
 	}
+	wasInBox := profiles[inmateName] == vault.InBoxInmateProfile
 	if err := project.SetInmateAuthProfile(inmateName, ""); err != nil {
 		return err
 	}
 	reloadRunningBroker(environment.Root)
+	if wasInBox {
+		ui.Progress("using default profile for %s in %s. Run `prison up` to apply",
+			inmateName, project.ID)
+		return nil
+	}
 	ui.Progress("using default profile for %s in %s", inmateName, project.ID)
 	return nil
 }
@@ -613,7 +668,8 @@ func inmateProfileProjects(root *state.Root) (map[string][]string, error) {
 			continue
 		}
 		for inmate, profile := range profiles {
-			if profile == "" || profile == vault.DefaultInmateProfile {
+			if profile == "" || profile == vault.DefaultInmateProfile ||
+				profile == vault.InBoxInmateProfile {
 				continue
 			}
 			key := inmateProfileKey(inmate, profile)

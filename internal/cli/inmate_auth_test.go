@@ -250,3 +250,49 @@ func TestInmateAuthEndToEnd(t *testing.T) {
 		t.Fatalf("oauth entry missing in %+v", oauthListed)
 	}
 }
+
+func TestInmateAuthInBox(t *testing.T) {
+	stateDir := t.TempDir()
+	projectDir := filepath.Join(t.TempDir(), "proj")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PRISON_ROOT", stateDir)
+	t.Chdir(projectDir)
+
+	// Opting into in-box login does not require an initialized vault.
+	inBoxCmd := newRootCommand()
+	inBoxCmd.SetArgs([]string{"inmate", "auth", "in-box", "agy"})
+	if err := inBoxCmd.Execute(); err != nil {
+		t.Fatalf("inmate auth in-box: %v", err)
+	}
+
+	root, err := state.OpenRoot(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := root.Project(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profiles, err := project.InmateAuthProfiles()
+	if err != nil || profiles["antigravity-cli"] != vault.InBoxInmateProfile {
+		t.Fatalf("InmateAuthProfiles = %v, %v", profiles, err)
+	}
+
+	useCmd := newRootCommand()
+	useCmd.SetArgs([]string{"inmate", "auth", "use", "agy", "in-box"})
+	if err := useCmd.Execute(); err == nil {
+		t.Fatal("inmate auth use agy in-box succeeded, want error")
+	}
+
+	clearCmd := newRootCommand()
+	clearCmd.SetArgs([]string{"inmate", "auth", "clear", "agy"})
+	if err := clearCmd.Execute(); err != nil {
+		t.Fatalf("inmate auth clear: %v", err)
+	}
+	profiles, err = project.InmateAuthProfiles()
+	if err != nil || len(profiles) != 0 {
+		t.Fatalf("after clear: %v, %v", profiles, err)
+	}
+}

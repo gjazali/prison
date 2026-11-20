@@ -178,6 +178,9 @@ func ValidateInmateProfile(profile string) error {
 			"%q is not a valid profile name. Use up to 32 lowercase letters, "+
 				"digits, and hyphens, starting with a letter", profile)
 	}
+	if profile == InBoxInmateProfile {
+		return fmt.Errorf("%q is reserved for in-box login", profile)
+	}
 	return nil
 }
 
