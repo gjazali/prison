@@ -23,6 +23,12 @@ func Describe(inmate *Inmate, w io.Writer) {
 		field(w, "foundation", inmate.Image.Foundation)
 	}
 	field(w, "dockerfile", inmate.Image.Dockerfile)
+	if inmate.Image.VersionArg != "" {
+		field(w, "version arg", inmate.Image.VersionArg)
+	}
+	if len(inmate.Image.MovingTags) > 0 {
+		field(w, "moving tags", strings.Join(inmate.Image.MovingTags, ", "))
+	}
 	field(w, "command", inmate.Command.Run)
 	if inmate.Command.Unsafe != "" {
 		field(w, "unsafe", inmate.Command.Unsafe)

@@ -87,6 +87,56 @@ func (r *Root) ProjectsDir() string {
 	return filepath.Join(r.Path, "projects")
 }
 
+func (r *Root) InmateRevisionsFile() string {
+	return filepath.Join(r.Path, "inmate-revisions.json")
+}
+
+func (r *Root) InmateRevisions() (map[string]int, error) {
+	var revisions map[string]int
+	found, err := readJSONFile(r.InmateRevisionsFile(), &revisions)
+	if err != nil {
+		return nil, err
+	}
+	if !found || len(revisions) == 0 {
+		return map[string]int{}, nil
+	}
+	return revisions, nil
+}
+
+func (r *Root) SaveInmateRevisions(revisions map[string]int) error {
+	cleaned := map[string]int{}
+	for name, revision := range revisions {
+		if revision > 0 {
+			cleaned[name] = revision
+		}
+	}
+	if len(cleaned) == 0 {
+		if err := os.Remove(r.InmateRevisionsFile()); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("cannot remove %s: %w", r.InmateRevisionsFile(), err)
+		}
+		return nil
+	}
+	return writeJSONFile(r.InmateRevisionsFile(), cleaned)
+}
+
+func NextInmateRevisions(current map[string]int, names ...string) map[string]int {
+	next := make(map[string]int, len(current)+len(names))
+	for name, revision := range current {
+		if revision > 0 {
+			next[name] = revision
+		}
+	}
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		next[name]++
+	}
+	return next
+}
+
 func (r *Root) FloorAllowList() ([]policy.Pattern, error) {
 	patterns, err := readAllowFile(r.EgressAllowFile())
 	if err != nil {

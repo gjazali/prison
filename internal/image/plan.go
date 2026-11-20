@@ -34,6 +34,7 @@ type Step struct {
 	Context     fs.FS
 	Dockerfile  string
 	Args        map[string]string
+	NoCache     bool
 	Description string
 }
 
@@ -49,6 +50,7 @@ func NewPlan(
 	inmates []*plugin.Inmate,
 	foundation string,
 	hostUID int,
+	revisions map[string]int,
 ) (*Plan, error) {
 	baseContext, err := fs.Sub(assets, baseDir)
 	if err != nil {
@@ -83,14 +85,34 @@ func NewPlan(
 			return nil, fmt.Errorf(
 				"cannot hash the inmate %s: %w", inmate.Name, err)
 		}
-		cumulative = ShortHash(cumulative, inmate.Name, tree)
+		parts := []string{cumulative, inmate.Name, tree}
+		args := map[string]string{"PRISON_BASE": previousTag}
+		noCache := false
+		if inmate.Version != "" && inmate.Version != "latest" {
+			parts = append(parts, "version="+inmate.Version)
+			if inmate.Image.VersionArg != "" {
+				args[inmate.Image.VersionArg] = inmate.Version
+			}
+		}
+		if !inmate.IsPinnedVersion() {
+			if revision := revisions[inmate.Name]; revision > 0 {
+				parts = append(parts, "rev="+strconv.Itoa(revision))
+				noCache = true
+			}
+		}
+		cumulative = ShortHash(parts...)
 		tag := BoxRepository + ":" + cumulative
+		description := "layer for " + inmate.Name
+		if inmate.Version != "" {
+			description += " (" + inmate.Version + ")"
+		}
 		plan.Steps = append(plan.Steps, Step{
 			Tag:         tag,
 			Context:     inmate.FS,
 			Dockerfile:  inmate.Image.Dockerfile,
-			Args:        map[string]string{"PRISON_BASE": previousTag},
-			Description: "layer for " + inmate.Name,
+			Args:        args,
+			NoCache:     noCache,
+			Description: description,
 		})
 		previousTag = tag
 	}

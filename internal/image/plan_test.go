@@ -39,7 +39,7 @@ func planFor(
 ) *Plan {
 	t.Helper()
 	plan, err := NewPlan(assets, "images/base", inmates,
-		DefaultFoundation, 501)
+		DefaultFoundation, 501, nil)
 	if err != nil {
 		t.Fatalf("NewPlan error = %v, want nil", err)
 	}
@@ -142,7 +142,7 @@ func TestPlanTagsFollowTheFoundationAndUID(t *testing.T) {
 	inmates := testInmates()
 	original := tagsOf(planFor(t, assets, inmates))
 
-	other, err := NewPlan(assets, "images/base", inmates, "fedora:41", 501)
+	other, err := NewPlan(assets, "images/base", inmates, "fedora:41", 501, nil)
 	if err != nil {
 		t.Fatalf("NewPlan error = %v, want nil", err)
 	}
@@ -154,7 +154,7 @@ func TestPlanTagsFollowTheFoundationAndUID(t *testing.T) {
 	}
 
 	other, err = NewPlan(assets, "images/base", inmates,
-		DefaultFoundation, 1000)
+		DefaultFoundation, 1000, nil)
 	if err != nil {
 		t.Fatalf("NewPlan error = %v, want nil", err)
 	}
@@ -218,7 +218,7 @@ func TestRenamingAnInmateChangesItsTag(t *testing.T) {
 func TestNewPlanRefusesAnInmateWithoutAContext(t *testing.T) {
 	inmates := []*plugin.Inmate{{Name: "claude"}}
 	_, err := NewPlan(testAssets(), "images/base", inmates,
-		DefaultFoundation, 501)
+		DefaultFoundation, 501, nil)
 	if err == nil {
 		t.Fatal("NewPlan error = nil, want an error")
 	}
@@ -229,9 +229,89 @@ func TestNewPlanRefusesAnInmateWithoutAContext(t *testing.T) {
 
 func TestNewPlanRefusesAMissingBaseDirectory(t *testing.T) {
 	_, err := NewPlan(testAssets(), "images/nowhere", nil,
-		DefaultFoundation, 501)
+		DefaultFoundation, 501, nil)
 	if err == nil {
 		t.Fatal("NewPlan error = nil, want an error")
+	}
+}
+
+func TestPlanRevisionsAndVersionPinning(t *testing.T) {
+	assets := testAssets()
+	inmates := testInmates()
+	inmates[0].Image.VersionArg = "CLAUDE_VERSION"
+	original := planFor(t, assets, inmates)
+
+	bumped, err := NewPlan(assets, "images/base", inmates,
+		DefaultFoundation, 501, map[string]int{"codex": 1})
+	if err != nil {
+		t.Fatalf("NewPlan(bumped): %v", err)
+	}
+	if bumped.Steps[0].Tag != original.Steps[0].Tag ||
+		bumped.Steps[1].Tag != original.Steps[1].Tag {
+		t.Fatal("bumping codex changed base or claude tags")
+	}
+	if bumped.Steps[2].Tag == original.Steps[2].Tag ||
+		bumped.Steps[3].Tag == original.Steps[3].Tag {
+		t.Fatal("bumping codex did not change codex and downstream tags")
+	}
+	if !bumped.Steps[2].NoCache {
+		t.Error("codex step NoCache = false, want true")
+	}
+	if bumped.Steps[0].NoCache || bumped.Steps[1].NoCache || bumped.Steps[3].NoCache {
+		t.Error("unexpected NoCache on non-bumped steps")
+	}
+
+	pinnedInmates := testInmates()
+	pinnedInmates[0].Image.VersionArg = "CLAUDE_VERSION"
+	pinnedInmates[0].Version = "1.0.50"
+	pinned, err := NewPlan(assets, "images/base", pinnedInmates,
+		DefaultFoundation, 501, map[string]int{"claude": 2})
+	if err != nil {
+		t.Fatalf("NewPlan(pinned): %v", err)
+	}
+	if pinned.Steps[1].Tag == original.Steps[1].Tag {
+		t.Error("pinned claude tag matched unpinned tag")
+	}
+	if pinned.Steps[1].Args["CLAUDE_VERSION"] != "1.0.50" {
+		t.Errorf("CLAUDE_VERSION = %q, want 1.0.50", pinned.Steps[1].Args["CLAUDE_VERSION"])
+	}
+	if pinned.Steps[1].NoCache {
+		t.Error("pinned step NoCache = true, want false")
+	}
+	pinnedAgain, err := NewPlan(assets, "images/base", pinnedInmates,
+		DefaultFoundation, 501, map[string]int{"claude": 9})
+	if err != nil {
+		t.Fatalf("NewPlan(pinnedAgain): %v", err)
+	}
+	if pinnedAgain.Steps[1].Tag != pinned.Steps[1].Tag {
+		t.Error("revision bump changed a version-pinned inmate tag")
+	}
+
+	movingInmates := testInmates()
+	movingInmates[0].Image.VersionArg = "CLAUDE_VERSION"
+	movingInmates[0].Image.MovingTags = []string{"latest", "stable"}
+	movingInmates[0].Version = "stable"
+	moving, err := NewPlan(assets, "images/base", movingInmates,
+		DefaultFoundation, 501, nil)
+	if err != nil {
+		t.Fatalf("NewPlan(moving): %v", err)
+	}
+	if moving.Steps[1].Tag == original.Steps[1].Tag {
+		t.Error("moving tag matched unpinned tag")
+	}
+	if moving.Steps[1].Args["CLAUDE_VERSION"] != "stable" {
+		t.Errorf("CLAUDE_VERSION = %q, want stable", moving.Steps[1].Args["CLAUDE_VERSION"])
+	}
+	movingBumped, err := NewPlan(assets, "images/base", movingInmates,
+		DefaultFoundation, 501, map[string]int{"claude": 1})
+	if err != nil {
+		t.Fatalf("NewPlan(movingBumped): %v", err)
+	}
+	if movingBumped.Steps[1].Tag == moving.Steps[1].Tag {
+		t.Error("revision bump did not change a moving tag")
+	}
+	if !movingBumped.Steps[1].NoCache {
+		t.Error("bumped moving tag NoCache = false, want true")
 	}
 }
 

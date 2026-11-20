@@ -244,3 +244,30 @@ func TestRegistryResolvesAliases(t *testing.T) {
 			inmate.Name, inmate.Problem)
 	}
 }
+
+func TestRegistryLoadsPinnedVersions(t *testing.T) {
+	registry, installDir, _ := testRegistry(t)
+	pinnedManifest := strings.Replace(codexManifest,
+		"[command]\n", "[image]\nversion_arg = \"CODEX_VERSION\"\n\n[command]\n", 1)
+	installInmate(t, installDir, "codex", pinnedManifest)
+	approveInstalled(t, registry, "codex")
+
+	loaded, err := registry.Load([]string{"cx:1.2.3"})
+	if err != nil {
+		t.Fatalf("Load(cx:1.2.3): %v", err)
+	}
+	if len(loaded) != 1 || loaded[0].Name != "codex" || loaded[0].Version != "1.2.3" {
+		t.Fatalf("loaded = %+v", loaded)
+	}
+
+	// Bundled test claude has no version_arg.
+	if _, err := registry.Load([]string{"claude:1.0.0"}); err == nil ||
+		!strings.Contains(err.Error(), "does not support version pinning") {
+		t.Errorf("Load(claude:1.0.0) = %v, want version pinning error", err)
+	}
+
+	if _, err := registry.Load([]string{"codex:1.0.0", "cx:2.0.0"}); err == nil ||
+		!strings.Contains(err.Error(), "two versions") {
+		t.Errorf("Load(conflicting versions) = %v, want conflict error", err)
+	}
+}

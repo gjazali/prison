@@ -7,13 +7,17 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
+
+	"prison/internal/config"
 )
 
 type Inmate struct {
 	Manifest
 	Name    string
+	Version string
 	Dir     string
 	FS      fs.FS
 	Bundled bool
@@ -114,18 +118,23 @@ func inmateClaimingAlias(alias string, claiming []*Inmate) (*Inmate, error) {
 		alias, strings.Join(contested, " and "))
 }
 
-func (r *Registry) Load(names []string) ([]*Inmate, error) {
-	loaded := make([]*Inmate, 0, len(names))
-	seen := make(map[string]bool, len(names))
-	for _, name := range names {
+func (r *Registry) Load(specs []string) ([]*Inmate, error) {
+	loaded := make([]*Inmate, 0, len(specs))
+	seen := make(map[string]*Inmate, len(specs))
+	for _, spec := range specs {
+		name, version := config.SplitInmateSpec(spec)
 		inmate, err := r.Get(name)
 		if err != nil {
 			return nil, err
 		}
-		if seen[inmate.Name] {
+		if existing := seen[inmate.Name]; existing != nil {
+			if existing.Version != version {
+				return nil, fmt.Errorf(
+					"the %s inmate is listed with two versions: %q and %q",
+					inmate.Name, existing.Version, version)
+			}
 			continue
 		}
-		seen[inmate.Name] = true
 		if inmate.Problem != nil {
 			return nil, fmt.Errorf("the %s inmate cannot be used: %w",
 				inmate.Name, inmate.Problem)
@@ -134,6 +143,14 @@ func (r *Registry) Load(names []string) ([]*Inmate, error) {
 			return nil, fmt.Errorf("the %s inmate changed after approval. "+
 				"Run `prison inmate trust %s`", inmate.Name, inmate.Name)
 		}
+		if version != "" {
+			if inmate.Image.VersionArg == "" {
+				return nil, fmt.Errorf(
+					"the %s inmate does not support version pinning", inmate.Name)
+			}
+			inmate.Version = version
+		}
+		seen[inmate.Name] = inmate
 		loaded = append(loaded, inmate)
 	}
 	return loaded, nil
@@ -281,6 +298,15 @@ func (i *Inmate) HasAlias(name string) bool {
 		}
 	}
 	return false
+}
+
+// IsPinnedVersion reports whether the inmate is pinned to a fixed version
+// rather than unpinned, `latest`, or a declared moving tag.
+func (i *Inmate) IsPinnedVersion() bool {
+	if i == nil || i.Version == "" || i.Version == "latest" {
+		return false
+	}
+	return !slices.Contains(i.Image.MovingTags, i.Version)
 }
 
 func (i *Inmate) Origin() (string, string) {

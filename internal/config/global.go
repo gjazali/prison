@@ -42,7 +42,7 @@ func LoadGlobal(path string) (*Global, error) {
 func (global *Global) validate() error {
 	if global.Prison.Inmates != nil {
 		for _, inmate := range *global.Prison.Inmates {
-			if err := ValidateName("inmate", inmate); err != nil {
+			if err := ValidateInmateSpec(inmate); err != nil {
 				return err
 			}
 		}

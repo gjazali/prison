@@ -93,6 +93,9 @@ func (driver *Driver) Build(
 		"--local", "dockerfile=" + filepath.Dir(dockerfilePath),
 		"--opt", "filename=" + filepath.Base(dockerfilePath),
 	}
+	if spec.NoCache {
+		arguments = append(arguments, "--no-cache")
+	}
 	names := make([]string, 0, len(spec.Args))
 	values := make([]string, 0, len(spec.Args))
 	for name := range spec.Args {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"prison/internal/plugin"
+	"prison/internal/session"
+	"prison/internal/state"
 	"prison/internal/ui"
 )
 
@@ -78,17 +81,32 @@ func newInmateInstallCommand() *cobra.Command {
 func newInmateUpdateCommand() *cobra.Command {
 	var requestedRef string
 	var assumeYes bool
+	var updateAll bool
 	command := &cobra.Command{
-		Use:   "update <name>",
-		Short: "update an installed inmate",
-		Args:  cobra.ExactArgs(1),
+		Use:   "update [<name>]",
+		Short: "update an inmate and rebuild this project's image",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(command *cobra.Command, arguments []string) error {
+			if updateAll && len(arguments) > 0 {
+				return errors.New("cannot pass an inmate name with `--all`")
+			}
+			if updateAll && requestedRef != "" {
+				return errors.New("cannot use `--ref` with `--all`")
+			}
+			if !updateAll && len(arguments) != 1 {
+				return errors.New("pass an inmate name or `--all`")
+			}
+			if updateAll {
+				return runInmateUpdateAll(command, assumeYes)
+			}
 			return runInmateUpdate(
 				command, arguments[0], requestedRef, assumeYes)
 		},
 	}
 	addInmateRefFlag(command, &requestedRef)
 	addInmateYesFlag(command, &assumeYes)
+	command.Flags().BoolVar(&updateAll, "all", false,
+		"update every inmate enabled in this project")
 	return command
 }
 
@@ -184,14 +202,140 @@ func runInmateUpdate(
 	if err != nil {
 		return err
 	}
+	inmate, err := environment.Registry.Get(name)
+	if err != nil {
+		return fmt.Errorf("%w. Run `prison inmate list`", err)
+	}
+	if inmate.Bundled && requestedRef != "" {
+		return fmt.Errorf(
+			"the %s inmate is bundled and does not accept `--ref`", inmate.Name)
+	}
 	ctx, cancel := commandContext()
 	defer cancel()
 	out := command.OutOrStdout()
-	approve := inmateApprovalFunction(
-		out, "install this inmate?", assumeYes)
-	_, err = environment.Registry.Update(
-		ctx, name, requestedRef, approve, out)
-	return refuseUnapprovedInmate(err, "not changed")
+	if !inmate.Bundled {
+		approve := inmateApprovalFunction(
+			out, "install this inmate?", assumeYes)
+		if _, err := environment.Registry.Update(
+			ctx, inmate.Name, requestedRef, approve, out); err != nil {
+			return refuseUnapprovedInmate(err, "not changed")
+		}
+	}
+
+	if current, err := environment.OpenCurrent(); err == nil {
+		if projectInmate, enabled := current.InmateByName(inmate.Name); enabled {
+			current.WarnAboutUntrustedConfiguration()
+			var toBump []string
+			if projectInmate.IsPinnedVersion() {
+				fmt.Fprintf(out,
+					"the %s inmate is pinned to %s in this project; edit prison.toml to change its version\n",
+					projectInmate.Name, projectInmate.Version)
+			} else {
+				toBump = []string{inmate.Name}
+			}
+			return rebuildProjectAfterUpdate(ctx, current, toBump, out)
+		}
+	}
+
+	revisions, err := environment.Root.InmateRevisions()
+	if err != nil {
+		return err
+	}
+	nextRevisions := state.NextInmateRevisions(revisions, inmate.Name)
+	if err := environment.Root.SaveInmateRevisions(nextRevisions); err != nil {
+		return err
+	}
+	fmt.Fprintf(out,
+		"updated %s. Projects using it will rebuild on the next `prison build` or `prison up`\n",
+		inmate.Name)
+	return nil
+}
+
+func runInmateUpdateAll(command *cobra.Command, assumeYes bool) error {
+	environment, err := loadEnvironment()
+	if err != nil {
+		return err
+	}
+	current, err := environment.OpenCurrent()
+	if err != nil {
+		return err
+	}
+	current.WarnAboutUntrustedConfiguration()
+	out := command.OutOrStdout()
+	if len(current.Inmates) == 0 {
+		fmt.Fprintln(out, "no inmates enabled in this project")
+		return nil
+	}
+	ctx, cancel := commandContext()
+	defer cancel()
+	approve := inmateApprovalFunction(out, "install this inmate?", assumeYes)
+	var toBump []string
+	for _, inmate := range current.Inmates {
+		if !inmate.Bundled {
+			if _, err := environment.Registry.Update(
+				ctx, inmate.Name, "", approve, out); err != nil {
+				return refuseUnapprovedInmate(err, "not changed")
+			}
+		}
+		if inmate.IsPinnedVersion() {
+			fmt.Fprintf(out, "the %s inmate is pinned to %s in this project\n",
+				inmate.Name, inmate.Version)
+			continue
+		}
+		toBump = append(toBump, inmate.Name)
+	}
+	current, err = environment.OpenCurrent()
+	if err != nil {
+		return err
+	}
+	return rebuildProjectAfterUpdate(ctx, current, toBump, out)
+}
+
+func rebuildProjectAfterUpdate(
+	ctx context.Context, current *session.Session, toBump []string, out io.Writer,
+) error {
+	revisions, err := current.Root.InmateRevisions()
+	if err != nil {
+		return err
+	}
+	nextRevisions := state.NextInmateRevisions(revisions, toBump...)
+	if current.Overrides.Image != "" {
+		if len(toBump) > 0 {
+			if err := current.Root.SaveInmateRevisions(nextRevisions); err != nil {
+				return err
+			}
+		}
+		ui.Warn("PRISON_IMAGE is set to %s; skipping image rebuild",
+			current.Overrides.Image)
+		return nil
+	}
+	if err := current.Isolator.Require(ctx); err != nil {
+		return err
+	}
+	tag, err := current.BuildImageWithRevisions(ctx, nextRevisions)
+	if err != nil {
+		return err
+	}
+	if len(toBump) > 0 {
+		if err := current.Root.SaveInmateRevisions(nextRevisions); err != nil {
+			return err
+		}
+	}
+	fmt.Fprintf(out, "%s\n", tag)
+	suggestRecreateIfNeeded(ctx, current, tag)
+	return nil
+}
+
+func suggestRecreateIfNeeded(
+	ctx context.Context, current *session.Session, tag string,
+) {
+	if current.Record == nil || current.Record.Box == nil ||
+		current.Record.Box.Image == tag {
+		return
+	}
+	if box, err := current.Isolator.Box(ctx, current.BoxName); err == nil && box.Exists {
+		ui.Progress("run `prison up --recreate` to apply the updated image")
+	}
 }
 
 func runInmateRemove(command *cobra.Command, name string) error {

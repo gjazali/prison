@@ -90,6 +90,16 @@ func TestLoadProjectRules(t *testing.T) {
 			"[prison]\ninmates = [\"Claude\"]\n",
 		},
 		{
+			"inmate version pins",
+			"[prison]\ninmates = [\"claude-code:1.0.50\", \"opencode:v0.2.3-beta.1\"]\n",
+			"[prison]\ninmates = [\"claude-code:\"]\n",
+		},
+		{
+			"inmate version rejects traversal",
+			"[prison]\ninmates = [\"claude-code:1.0.50\"]\n",
+			"[prison]\ninmates = [\"claude-code:1..2\"]\n",
+		},
+		{
 			"cpu count",
 			"[box]\ncpus = 32\n",
 			"[box]\ncpus = 33\n",

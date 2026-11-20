@@ -50,8 +50,10 @@ type InmateTable struct {
 }
 
 type ImageTable struct {
-	Foundation string `toml:"foundation"`
-	Dockerfile string `toml:"dockerfile"`
+	Foundation string   `toml:"foundation"`
+	Dockerfile string   `toml:"dockerfile"`
+	VersionArg string   `toml:"version_arg"`
+	MovingTags []string `toml:"moving_tags"`
 }
 
 type CommandTable struct {
@@ -135,7 +137,7 @@ var acceptedKeys = map[string][]string{
 	"": {"inmate", "image", "command", "auth", "persist", "environment",
 		"egress", "hooks", "host"},
 	"inmate":           {"name", "description", "aliases"},
-	"image":            {"foundation", "dockerfile"},
+	"image":            {"foundation", "dockerfile", "version_arg", "moving_tags"},
 	"command":          {"run", "unsafe"},
 	"auth":             {"upstream", "intercept", "intercept_hosts", "placeholder_token_url", "path_prefix", "base_url_variable", "token_variable", "credentials", "in_box"},
 	"auth.in_box":      {"hosts"},
@@ -290,6 +292,19 @@ func (m *Manifest) validateImage() error {
 	if m.Image.Foundation != "" {
 		if err := requireLine(m.Image.Foundation, "image.foundation"); err != nil {
 			return err
+		}
+	}
+	if m.Image.VersionArg != "" {
+		if err := config.ValidateBoxEnvironmentName(m.Image.VersionArg); err != nil {
+			return fmt.Errorf("image.version_arg: %w", err)
+		}
+	}
+	if len(m.Image.MovingTags) > 0 && m.Image.VersionArg == "" {
+		return fmt.Errorf("image.moving_tags needs image.version_arg")
+	}
+	for _, tag := range m.Image.MovingTags {
+		if err := config.ValidateInmateVersion(tag); err != nil {
+			return fmt.Errorf("image.moving_tags: %w", err)
 		}
 	}
 	return requireInsideRelative(m.Image.Dockerfile, "image.dockerfile")

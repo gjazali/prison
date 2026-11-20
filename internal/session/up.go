@@ -19,6 +19,10 @@ import (
 	"prison/internal/vault"
 )
 
+type UpOptions struct {
+	Recreate bool
+}
+
 type UpResult struct {
 	Client   *control.Client
 	Image    string
@@ -31,7 +35,7 @@ type UpResult struct {
 	Unlocked bool
 }
 
-func (s *Session) Up(ctx context.Context) (*UpResult, error) {
+func (s *Session) Up(ctx context.Context, options UpOptions) (*UpResult, error) {
 	if err := s.Isolator.Require(ctx); err != nil {
 		return nil, err
 	}
@@ -96,7 +100,7 @@ func (s *Session) Up(ctx context.Context) (*UpResult, error) {
 		return nil, err
 	}
 
-	imageTag, err := s.ensureImage(ctx)
+	imageTag, err := s.ensureImage(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +118,7 @@ func (s *Session) Up(ctx context.Context) (*UpResult, error) {
 	s.reportRequiredSecrets()
 
 	created, err := s.createOrStartBox(ctx, record, imageTag, ports,
-		shadowPaths, sudo)
+		shadowPaths, sudo, options.Recreate)
 	if err != nil {
 		return nil, err
 	}
@@ -278,16 +282,29 @@ func (s *Session) prepareDirectories(shadowPaths []string) error {
 	return nil
 }
 
-func (s *Session) ensureImage(ctx context.Context) (string, error) {
+func (s *Session) ImagePlan(revisions map[string]int) (*image.Plan, error) {
+	foundation, err := image.ResolveFoundation(s.Inmates, s.Overrides.Foundation)
+	if err != nil {
+		return nil, err
+	}
+	return image.NewPlan(s.Assets, prison.BaseImageDir, s.Inmates,
+		foundation, s.HostUID, revisions)
+}
+
+func (s *Session) ensureImage(
+	ctx context.Context, revisions map[string]int,
+) (string, error) {
 	if s.Overrides.Image != "" {
 		return s.Overrides.Image, nil
 	}
-	foundation, err := image.ResolveFoundation(s.Inmates, s.Overrides.Foundation)
-	if err != nil {
-		return "", err
+	if revisions == nil {
+		var err error
+		revisions, err = s.Root.InmateRevisions()
+		if err != nil {
+			return "", err
+		}
 	}
-	plan, err := image.NewPlan(s.Assets, prison.BaseImageDir, s.Inmates,
-		foundation, s.HostUID)
+	plan, err := s.ImagePlan(revisions)
 	if err != nil {
 		return "", err
 	}
@@ -298,7 +315,13 @@ func (s *Session) ensureImage(ctx context.Context) (string, error) {
 }
 
 func (s *Session) BuildImage(ctx context.Context) (string, error) {
-	return s.ensureImage(ctx)
+	return s.ensureImage(ctx, nil)
+}
+
+func (s *Session) BuildImageWithRevisions(
+	ctx context.Context, revisions map[string]int,
+) (string, error) {
+	return s.ensureImage(ctx, revisions)
 }
 
 func (s *Session) hasAuthInmates() bool {
@@ -404,18 +427,19 @@ func (s *Session) reportRequiredSecrets() {
 	}
 }
 
-// createOrStartBox does not change an existing box, so it only warns about
-// shape drift. `NET_ADMIN` lets the guest agent set its firewall rules.
+// createOrStartBox leaves an existing box alone unless `recreate` is set.
+// `NET_ADMIN` lets the guest agent set its firewall rules.
 func (s *Session) createOrStartBox(
 	ctx context.Context, record *state.ProjectRecord, imageTag string,
 	ports []isolator.PortMapping, shadowPaths []string, sudo bool,
+	recreate bool,
 ) (bool, error) {
 	box, err := s.Isolator.Box(ctx, s.BoxName)
 	if err != nil {
 		return false, err
 	}
 	shape := s.Shape(imageTag, ports, shadowPaths)
-	if box.Exists {
+	if box.Exists && !recreate {
 		if !box.Running {
 			ui.Progress("starting %s", s.BoxName)
 			if err := s.Isolator.Start(ctx, s.BoxName); err != nil {
@@ -423,9 +447,25 @@ func (s *Session) createOrStartBox(
 			}
 		}
 		for _, drift := range DescribeShapeDrift(record.Box, shape) {
-			ui.Warn("%s. Run `prison rm`, then `prison up`", drift)
+			ui.Warn("%s. Run `prison up --recreate`", drift)
 		}
 		return false, nil
+	}
+	if box.Exists && recreate {
+		ui.Progress("recreating %s", s.BoxName)
+		s.UnpublishPorts(ctx, s.BoxName)
+		_ = s.Isolator.Stop(ctx, s.BoxName)
+		if err := s.Isolator.Delete(ctx, s.BoxName); err != nil {
+			current, lookupErr := s.Isolator.Box(ctx, s.BoxName)
+			if lookupErr != nil || current.Exists {
+				return false, err
+			}
+		}
+		record.Box = nil
+		record.SetupSignature = ""
+		if err := s.Project.SaveRecord(record); err != nil {
+			return false, err
+		}
 	}
 	token, err := s.Project.Token()
 	if err != nil {

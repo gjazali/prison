@@ -63,7 +63,7 @@ func (overrides *Overrides) readInmates(
 	if text, set := getenv("PRISON_INMATES"); set {
 		names := []string{}
 		for _, name := range strings.Fields(text) {
-			if err := ValidateName("inmate", name); err != nil {
+			if err := ValidateInmateSpec(name); err != nil {
 				return fmt.Errorf("PRISON_INMATES: %w", err)
 			}
 			names = append(names, name)

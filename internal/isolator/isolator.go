@@ -73,6 +73,7 @@ type BuildSpec struct {
 	Context    string
 	Dockerfile string
 	Args       map[string]string
+	NoCache    bool
 	Output     io.Writer
 }
 

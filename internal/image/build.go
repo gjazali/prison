@@ -85,6 +85,7 @@ func buildStep(
 		Context:    directory,
 		Dockerfile: step.Dockerfile,
 		Args:       step.Args,
+		NoCache:    step.NoCache,
 		Output:     out,
 	})
 	if err != nil {

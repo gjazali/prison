@@ -478,3 +478,15 @@ func containsCall(calls []string, wanted string) bool {
 	}
 	return false
 }
+
+func TestBuildArgumentsIncludesNoCache(t *testing.T) {
+	arguments := buildArguments(isolator.BuildSpec{
+		Tag:     "prison/box:abc",
+		Context: "/tmp/ctx",
+		NoCache: true,
+	})
+	joined := strings.Join(arguments, " ")
+	if !strings.Contains(joined, "--no-cache") {
+		t.Fatalf("buildArguments = %q, want --no-cache", joined)
+	}
+}

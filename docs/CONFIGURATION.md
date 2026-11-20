@@ -87,6 +87,29 @@ named in this key in the local set is not unioned with the global set.
 
 Use `[prison] inmates = []` to not use the Inmates defined by the global set.
 
+To pin an Inmate to a specific version (for Inmates that declare `version_arg`
+under `[image]` in their `inmate.toml`), you can do:
+
+```toml
+[prison]
+inmates = ["claude-code:1.0.50", "opencode:0.2.3"]
+```
+
+An Inmate can also list channel names under `[image] moving_tags` in its
+`inmate.toml` (e.g., `latest`, `stable`).
+
+To update an unpinned Inmate and refresh a moving tag, run:
+
+<pre>
+prison inmate update <b><i>inmate_name</i></b>
+</pre>
+
+To apply the update to all Inmates defined in the project:
+
+<pre>
+prison inmate update --all
+</pre>
+
 #### `[box]`
 
 ##### `cpus`

@@ -151,3 +151,91 @@ func TestInBoxLoginProfileEnvironmentAndWarning(t *testing.T) {
 		t.Fatalf("warning output = %q", string(warningBytes))
 	}
 }
+
+type fakeRecreateIsolator struct {
+	isolator.Isolator
+	exists    bool
+	running   bool
+	stopped   int
+	deleted   int
+	created   int
+	lastImage string
+}
+
+func (f *fakeRecreateIsolator) Box(ctx context.Context, name string) (isolator.BoxInfo, error) {
+	return isolator.BoxInfo{Name: name, Exists: f.exists, Running: f.running}, nil
+}
+
+func (f *fakeRecreateIsolator) Stop(ctx context.Context, name string) error {
+	f.stopped++
+	f.running = false
+	return nil
+}
+
+func (f *fakeRecreateIsolator) Delete(ctx context.Context, name string) error {
+	f.deleted++
+	f.exists = false
+	return nil
+}
+
+func (f *fakeRecreateIsolator) Create(ctx context.Context, spec isolator.CreateSpec) error {
+	f.created++
+	f.exists = true
+	f.running = true
+	f.lastImage = spec.Image
+	return nil
+}
+
+func TestCreateOrStartBoxRecreate(t *testing.T) {
+	root, err := state.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectDir := t.TempDir()
+	project, err := root.Project(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := &state.ProjectRecord{
+		Path:           projectDir,
+		SetupSignature: "old-sig",
+		Box:            &state.BoxShape{Image: "prison/box:old"},
+	}
+	if err := project.SaveRecord(record); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeRecreateIsolator{exists: true, running: true}
+	s := &Session{
+		Environment: &Environment{
+			Root:      root,
+			Isolator:  fake,
+			Overrides: &config.Overrides{Network: "prison", BrokerPort: 8787},
+		},
+		Directory: projectDir,
+		Project:   project,
+		Record:    record,
+		BoxName:   "proj-1234567890ab.prison",
+	}
+
+	created, err := s.createOrStartBox(
+		context.Background(), record, "prison/box:new", nil, nil, false, true)
+	if err != nil {
+		t.Fatalf("createOrStartBox(recreate): %v", err)
+	}
+	if !created {
+		t.Fatal("created = false, want true")
+	}
+	if fake.stopped != 1 || fake.deleted != 1 || fake.created != 1 {
+		t.Fatalf("calls: stopped=%d deleted=%d created=%d",
+			fake.stopped, fake.deleted, fake.created)
+	}
+	if fake.lastImage != "prison/box:new" {
+		t.Fatalf("created image = %q, want prison/box:new", fake.lastImage)
+	}
+	if record.SetupSignature != "" {
+		t.Fatalf("SetupSignature = %q, want cleared", record.SetupSignature)
+	}
+	if record.Box == nil || record.Box.Image != "prison/box:new" {
+		t.Fatalf("record.Box = %+v, want prison/box:new", record.Box)
+	}
+}

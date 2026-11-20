@@ -118,12 +118,14 @@ func TestBuildUsesStoredImagesAsNamedContexts(t *testing.T) {
 		Context:    "/tmp/inmate",
 		Dockerfile: "images/Dockerfile",
 		Args:       map[string]string{"PRISON_BASE": "prison-base:abc"},
+		NoCache:    true,
 	}
 	if err := driver.Build(ctx, inmate); err != nil {
 		t.Fatalf("Build(inmate) = %v, want nil", err)
 	}
 	arguments := strings.Join((*builds)[1].arguments, " ")
 	for _, want := range []string{
+		"--no-cache",
 		"--local dockerfile=/tmp/inmate/images --opt filename=Dockerfile",
 		"--oci-layout image1=" + driver.layoutPath("prison-base:abc"),
 		"context:prison-base:abc=oci-layout://image1@sha256:aaaa",

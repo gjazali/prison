@@ -5,6 +5,8 @@ aliases = ["claude"]
 
 [image]
 dockerfile = "Dockerfile"
+version_arg = "CLAUDE_VERSION"
+moving_tags = ["latest", "stable", "next"]
 
 [command]
 run = "claude"

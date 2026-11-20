@@ -18,24 +18,28 @@ func init() {
 }
 
 func addUpCommand(root *cobra.Command) {
-	root.AddCommand(&cobra.Command{
+	var recreate bool
+	command := &cobra.Command{
 		Use:   "up",
 		Short: "create or start this project's box",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return runUp()
+			return runUp(recreate)
 		},
-	})
+	}
+	command.Flags().BoolVar(&recreate, "recreate", false,
+		"replace an existing box while keeping its state")
+	root.AddCommand(command)
 }
 
-func runUp() error {
+func runUp(recreate bool) error {
 	ctx, cancel := commandContext()
 	defer cancel()
 	current, err := openSession()
 	if err != nil {
 		return err
 	}
-	result, err := current.Up(ctx)
+	result, err := current.Up(ctx, session.UpOptions{Recreate: recreate})
 	if err != nil {
 		return err
 	}
@@ -96,6 +100,9 @@ func describeInmates(current *session.Session, result *session.UpResult) string 
 	names := make([]string, 0, len(current.Inmates))
 	for _, inmate := range current.Inmates {
 		name := inmate.Name
+		if inmate.Version != "" {
+			name += ":" + inmate.Version
+		}
 		if profile := profiles[inmate.Name]; profile != "" && profile != "default" {
 			name += " (" + profile + ")"
 		}

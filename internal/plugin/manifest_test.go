@@ -237,3 +237,28 @@ remove = ["mode"]
 		}
 	}
 }
+
+func TestParseManifestVersionArgAndMovingTags(t *testing.T) {
+	manifest, err := ParseManifest([]byte(minimalManifest + `
+[image]
+version_arg = "TOOL_VERSION"
+moving_tags = ["latest", "stable", "nightly"]
+`))
+	if err != nil {
+		t.Fatalf("ParseManifest: %v", err)
+	}
+	if manifest.Image.VersionArg != "TOOL_VERSION" || len(manifest.Image.MovingTags) != 3 {
+		t.Fatalf("image = %+v", manifest.Image)
+	}
+
+	bad := []string{
+		"[image]\nmoving_tags = [\"stable\"]\n",
+		"[image]\nversion_arg = \"PRISON_VERSION\"\n",
+		"[image]\nversion_arg = \"TOOL_VERSION\"\nmoving_tags = [\"bad..tag\"]\n",
+	}
+	for index, fragment := range bad {
+		if _, err := ParseManifest([]byte(minimalManifest + fragment)); err == nil {
+			t.Errorf("bad case %d: ParseManifest = nil, want an error", index)
+		}
+	}
+}

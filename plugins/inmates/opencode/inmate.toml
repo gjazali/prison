@@ -4,6 +4,7 @@ description = "opencode.ai"
 
 [image]
 dockerfile = "Dockerfile"
+version_arg = "OPENCODE_VERSION"
 
 [command]
 run = "opencode"

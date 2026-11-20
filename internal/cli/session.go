@@ -9,10 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"prison"
 	"prison/internal/broker/control"
 	"prison/internal/console"
-	"prison/internal/image"
 	"prison/internal/plugin"
 	"prison/internal/session"
 	"prison/internal/ui"
@@ -178,7 +176,7 @@ func requireCommandInBox(ctx context.Context, current *session.Session,
 	}
 	if created := recordedBoxImage(current); created != "" && created != wanted {
 		return fmt.Errorf("this box uses image %s, which has no %s. The %s "+
-			"inmate needs %s. Run `prison rm`, then `prison up`",
+			"inmate needs %s. Run `prison up --recreate`",
 			created, program[0], inmate.Name, wanted)
 	}
 	return fmt.Errorf("image %s has no %s. Make sure that the Dockerfile "+
@@ -197,13 +195,11 @@ func resolveBoxImageTag(current *session.Session) (string, error) {
 	if current.Overrides.Image != "" {
 		return current.Overrides.Image, nil
 	}
-	foundation, err := image.ResolveFoundation(
-		current.Inmates, current.Overrides.Foundation)
+	revisions, err := current.Root.InmateRevisions()
 	if err != nil {
 		return "", err
 	}
-	plan, err := image.NewPlan(current.Assets, prison.BaseImageDir,
-		current.Inmates, foundation, current.HostUID)
+	plan, err := current.ImagePlan(revisions)
 	if err != nil {
 		return "", err
 	}

@@ -19,6 +19,9 @@ func (driver *Driver) ImageExists(
 
 func buildArguments(spec isolator.BuildSpec) []string {
 	arguments := []string{"build", "--tag", spec.Tag}
+	if spec.NoCache {
+		arguments = append(arguments, "--no-cache")
+	}
 	if spec.Dockerfile != "" {
 		arguments = append(arguments, "--file",
 			filepath.Join(spec.Context, spec.Dockerfile))

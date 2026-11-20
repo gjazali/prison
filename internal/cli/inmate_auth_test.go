@@ -89,6 +89,10 @@ func TestDescribeStatusInmates(t *testing.T) {
 	if got := describeStatusInmates(current); got != "claude-code (work) opencode" {
 		t.Fatalf("with override = %q", got)
 	}
+	current.InmateNames = []string{"claude-code:1.0.50", "opencode"}
+	if got := describeStatusInmates(current); got != "claude-code:1.0.50 (work) opencode" {
+		t.Fatalf("with pinned version and override = %q", got)
+	}
 }
 
 func TestInmateAuthEndToEnd(t *testing.T) {

@@ -299,6 +299,24 @@ func TestEnsureReportsAnUnreadableIsolator(t *testing.T) {
 	}
 }
 
+func TestEnsurePassesNoCacheToIsolator(t *testing.T) {
+	plan, err := NewPlan(testAssets(), "images/base", testInmates(),
+		DefaultFoundation, 501, map[string]int{"codex": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newRecordingIsolator()
+	if err := Ensure(t.Context(), c, plan, nil); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	if !c.BuildSpecs[2].NoCache {
+		t.Error("codex BuildSpec.NoCache = false, want true")
+	}
+	if c.BuildSpecs[0].NoCache || c.BuildSpecs[1].NoCache || c.BuildSpecs[3].NoCache {
+		t.Error("unexpected BuildSpec.NoCache on non-updated steps")
+	}
+}
+
 func TestExtractFSRoundTrip(t *testing.T) {
 	source := fstest.MapFS{
 		"Dockerfile":       &fstest.MapFile{Data: []byte("FROM scratch\n")},

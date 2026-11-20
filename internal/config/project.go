@@ -96,7 +96,7 @@ func LoadProject(path string, content []byte) (*Project, error) {
 func (project *Project) validate() error {
 	if project.Prison.Inmates != nil {
 		for _, inmate := range *project.Prison.Inmates {
-			if err := ValidateName("inmate", inmate); err != nil {
+			if err := ValidateInmateSpec(inmate); err != nil {
 				return err
 			}
 		}

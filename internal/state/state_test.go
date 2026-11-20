@@ -427,3 +427,32 @@ func TestRecordRoundTripKeepsTheJSONShape(t *testing.T) {
 		t.Errorf("Box = %+v, want the saved box", read.Box)
 	}
 }
+
+func TestInmateRevisionsRoundTrip(t *testing.T) {
+	root := newTestRoot(t)
+	revisions, err := root.InmateRevisions()
+	if err != nil || len(revisions) != 0 {
+		t.Fatalf("empty InmateRevisions = %v, %v", revisions, err)
+	}
+
+	next := NextInmateRevisions(revisions, "claude-code", "opencode", "claude-code")
+	if next["claude-code"] != 1 || next["opencode"] != 1 {
+		t.Fatalf("NextInmateRevisions = %v", next)
+	}
+	if err := root.SaveInmateRevisions(next); err != nil {
+		t.Fatalf("SaveInmateRevisions: %v", err)
+	}
+
+	loaded, err := root.InmateRevisions()
+	if err != nil {
+		t.Fatalf("InmateRevisions: %v", err)
+	}
+	if loaded["claude-code"] != 1 || loaded["opencode"] != 1 {
+		t.Fatalf("loaded = %v", loaded)
+	}
+
+	bumped := NextInmateRevisions(loaded, "claude-code")
+	if bumped["claude-code"] != 2 || bumped["opencode"] != 1 {
+		t.Fatalf("bumped = %v", bumped)
+	}
+}

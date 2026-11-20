@@ -452,11 +452,16 @@ func describeStatusInmates(current *session.Session) string {
 		return strings.Join(current.InmateNames, " ")
 	}
 	formatted := make([]string, 0, len(current.InmateNames))
-	for _, name := range current.InmateNames {
-		if profile := profiles[name]; profile != "" && profile != "default" {
-			formatted = append(formatted, fmt.Sprintf("%s (%s)", name, profile))
+	for _, spec := range current.InmateNames {
+		baseName, _ := config.SplitInmateSpec(spec)
+		profileKey := baseName
+		if inmate, ok := current.InmateByName(baseName); ok {
+			profileKey = inmate.Name
+		}
+		if profile := profiles[profileKey]; profile != "" && profile != "default" {
+			formatted = append(formatted, fmt.Sprintf("%s (%s)", spec, profile))
 		} else {
-			formatted = append(formatted, name)
+			formatted = append(formatted, spec)
 		}
 	}
 	return strings.Join(formatted, " ")
