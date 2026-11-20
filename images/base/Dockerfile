@@ -30,7 +30,7 @@ RUN if command -v corepack >/dev/null 2>&1; then corepack enable; fi
 # Universal runtime version manager (`mise`). Data, config, cache, and state is
 # kept under `/home/dev/.local/share/mise`.
 ARG MISE_VERSION=latest
-ARG MISE_RELEASES=https://api.github.com/repos/jdx/mise/releases
+ARG MISE_RELEASES=https://github.com/jdx/mise/releases
 RUN set -eu \
   && case "$(dpkg --print-architecture)" in \
        amd64) architecture=x64 ;; \
@@ -38,21 +38,18 @@ RUN set -eu \
        *) echo "unsupported architecture" >&2; exit 1 ;; \
      esac \
   && if [ "${MISE_VERSION}" = latest ]; then \
-       release_path=latest; \
+       download_base="${MISE_RELEASES}/latest/download"; \
      else \
-       release_path="tags/v${MISE_VERSION#v}"; \
+       download_base="${MISE_RELEASES}/download/v${MISE_VERSION#v}"; \
      fi \
-  && release="$(curl -fsSL "${MISE_RELEASES}/${release_path}")" \
-  && tag="$(printf '%s' "${release}" | jq -er .tag_name)" \
-  && asset="mise-${tag}-linux-${architecture}.tar.gz" \
-  && download="$(printf '%s' "${release}" | jq -er --arg name "${asset}" \
-       '.assets[] | select(.name == $name) | .browser_download_url')" \
-  && sums_url="$(printf '%s' "${release}" | jq -er \
-       '.assets[] | select(.name == "SHASUMS256.txt") | .browser_download_url')" \
-  && curl -fsSL -o "/tmp/${asset}" "${download}" \
-  && curl -fsSL -o /tmp/SHASUMS256.txt "${sums_url}" \
-  && (cd /tmp && awk -v name="${asset}" '$2 == name { print $1 "  " $2 }' \
-       SHASUMS256.txt | sha256sum -c --strict) \
+  && curl -fsSL -o /tmp/SHASUMS256.txt "${download_base}/SHASUMS256.txt" \
+  && line="$(awk -v arch="${architecture}" \
+       '{ name = $2; sub(/^\.\//, "", name); if (name ~ ("^mise-v[^-]+-linux-" arch "\\.tar\\.gz$")) { print $1 "  " name; exit } }' \
+       /tmp/SHASUMS256.txt)" \
+  && test -n "${line}" \
+  && asset="${line#*  }" \
+  && curl -fsSL -o "/tmp/${asset}" "${download_base}/${asset}" \
+  && (cd /tmp && printf '%s\n' "${line}" | sha256sum -c --strict) \
   && tar -xzf "/tmp/${asset}" -C /tmp mise/bin/mise \
   && install -m 0755 /tmp/mise/bin/mise /usr/local/bin/mise \
   && rm -rf "/tmp/${asset}" /tmp/SHASUMS256.txt /tmp/mise
