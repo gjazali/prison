@@ -18,7 +18,7 @@ type Console struct {
 	restore      *term.State
 }
 
-func Open() (*Console, error) {
+func openLent() (*Console, error) {
 	multiplexer, lentTerminal, err := OpenTerminalPair()
 	if err != nil {
 		return nil, err
@@ -26,7 +26,6 @@ func Open() (*Console, error) {
 	console := &Console{
 		multiplexer:  multiplexer,
 		lentTerminal: lentTerminal,
-		userTerminal: int(os.Stdin.Fd()),
 	}
 	columns, rows, err := term.GetSize(int(os.Stdout.Fd()))
 	if err == nil {
@@ -40,14 +39,33 @@ func Open() (*Console, error) {
 		console.release()
 		return nil, fmt.Errorf("cannot set the pty to raw mode: %w", err)
 	}
+	return console, nil
+}
+
+func Open() (*Console, error) {
+	console, err := openLent()
+	if err != nil {
+		return nil, err
+	}
+	console.userTerminal = int(os.Stdin.Fd())
 	restore, err := term.MakeRaw(console.userTerminal)
 	if err != nil {
 		console.release()
 		return nil, fmt.Errorf("cannot set the terminal to raw mode: %w", err)
 	}
 	console.restore = restore
-	go func() { _, _ = io.Copy(multiplexer, os.Stdin) }()
-	go func() { _, _ = io.Copy(io.Discard, multiplexer) }()
+	go func() { _, _ = io.Copy(console.multiplexer, os.Stdin) }()
+	go func() { _, _ = io.Copy(io.Discard, console.multiplexer) }()
+	return console, nil
+}
+
+// OpenOutput lends a pty without changing the user terminal or reading stdin.
+func OpenOutput() (*Console, error) {
+	console, err := openLent()
+	if err != nil {
+		return nil, err
+	}
+	go func() { _, _ = io.Copy(io.Discard, console.multiplexer) }()
 	return console, nil
 }
 

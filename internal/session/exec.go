@@ -10,8 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"prison/internal/console"
 	"prison/internal/isolator"
+	"prison/internal/ui"
 )
+
+var stdoutIsTerminal = ui.StdoutIsTerminal
 
 const GuestBinary = "/usr/local/bin/prison-guest"
 
@@ -75,12 +79,32 @@ func (s *Session) RunQuiet(ctx context.Context, command ...string) (int, string,
 
 func (s *Session) RunShell(ctx context.Context, line string,
 	environment []string) (int, error) {
-	return s.Exec(ctx, ExecRequest{
+	return s.runShell(ctx, line, environment, stdoutIsTerminal())
+}
+
+func (s *Session) runShell(ctx context.Context, line string,
+	environment []string, tty bool) (int, error) {
+	request := ExecRequest{
 		Command:     []string{"bash", "-lc", line},
 		Environment: environment,
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
-	})
+	}
+	if tty {
+		if held, err := console.OpenOutput(); err == nil {
+			defer held.Close()
+			rows, columns := ui.TerminalSize()
+			request.Command = []string{"bash", "-lc", fmt.Sprintf(
+				"stty rows %d cols %d 2>/dev/null; %s", rows, columns, line)}
+			request.TTY = true
+			request.Stdin = held.Stdin()
+		}
+	}
+	status, err := s.Exec(ctx, request)
+	if request.TTY && ctx.Err() != nil {
+		_, _ = fmt.Fprint(os.Stdout, "\x1b[?25h")
+	}
+	return status, err
 }
 
 type ProbeResult struct {

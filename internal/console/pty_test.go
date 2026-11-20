@@ -81,3 +81,17 @@ func TestCloseIsIdempotent(t *testing.T) {
 		t.Errorf("second Close: %v", err)
 	}
 }
+
+func TestOpenOutputLendsATerminal(t *testing.T) {
+	held, err := OpenOutput()
+	if err != nil {
+		t.Fatalf("OpenOutput: %v", err)
+	}
+	defer held.Close()
+	if !term.IsTerminal(int(held.Stdin().Fd())) {
+		t.Errorf("IsTerminal(%s) = false, want true", held.Stdin().Name())
+	}
+	if err := held.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}

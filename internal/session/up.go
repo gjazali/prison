@@ -609,16 +609,24 @@ func (s *Session) runSetup(ctx context.Context, force bool) error {
 	if !force && s.Record != nil && s.Record.SetupSignature == signature {
 		return nil
 	}
+	tty := stdoutIsTerminal()
+	term := ""
+	if tty {
+		term = s.ResolveTerm(ctx)
+	}
 	// The nil client leaves granted secrets out of setup commands. Secrets are
 	// for interactive sessions.
-	environment, err := s.ExecEnvironment(ctx, nil, "")
+	environment, err := s.ExecEnvironment(ctx, nil, term)
 	if err != nil {
 		return err
 	}
 	for _, line := range commands {
 		ui.Progress("setup  %s", line)
-		status, err := s.RunShell(ctx, line, environment)
+		status, err := s.runShell(ctx, line, environment, tty)
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			ui.Warn("cannot run `%s`: %v", line, err)
 			return nil
 		}
