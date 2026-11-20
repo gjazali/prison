@@ -55,13 +55,12 @@ func TestDefaultIgnoresCoverTemporaryNames(t *testing.T) {
 	ignore := NewIgnore(DefaultIgnores)
 	for _, path := range []string{
 		"src/main.go.prison-partial", "src/main.go.partial", ".DS_Store",
-		"pkg/thing.pyc",
 	} {
 		if !ignore.Matches(path, false) {
 			t.Errorf("Matches(%q) = false, want true", path)
 		}
 	}
-	if !ignore.Matches("node_modules", true) {
-		t.Error("Matches(\"node_modules\") = false, want true")
+	if !ignore.Matches(".git", true) {
+		t.Error("Matches(\".git\") = false, want true")
 	}
 }

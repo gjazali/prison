@@ -214,21 +214,14 @@ func (a *AllowList) HostMatches(host string) bool {
 
 func DefaultFloor() []Pattern {
 	entries := []string{
-		"registry.npmjs.org",
-		"registry.yarnpkg.com",
-		"*.npmjs.org",
 		"github.com",
 		"*.github.com",
 		"*.githubusercontent.com",
 		"ghcr.io",
 		"deb.debian.org",
 		"security.debian.org",
-		"pypi.org",
-		"files.pythonhosted.org",
-		"proxy.golang.org",
-		"sum.golang.org",
-		"crates.io",
-		"static.crates.io",
+		"mise.jdx.dev",
+		"mise-versions.jdx.dev",
 	}
 	patterns, err := ParseStrings(entries)
 	if err != nil {

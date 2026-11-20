@@ -267,6 +267,9 @@ func announceStateRemoval(project *state.Project) {
 	if directoryIsPresent(snapshots) {
 		fmt.Println("  all checkpoints")
 	}
+	if len(childDirectoryNames(project.MiseDir())) > 0 {
+		fmt.Println("  installed mise runtimes")
+	}
 	if fileHasContent(project.EgressAllowFile()) {
 		fmt.Println("  the egress allowlist")
 	}

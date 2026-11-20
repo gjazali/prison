@@ -27,6 +27,45 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN if command -v corepack >/dev/null 2>&1; then corepack enable; fi
 
+# Universal runtime version manager (`mise`). Data, config, cache, and state is
+# kept under `/home/dev/.local/share/mise`.
+ARG MISE_VERSION=latest
+ARG MISE_RELEASES=https://api.github.com/repos/jdx/mise/releases
+RUN set -eu \
+  && case "$(dpkg --print-architecture)" in \
+       amd64) architecture=x64 ;; \
+       arm64) architecture=arm64 ;; \
+       *) echo "unsupported architecture" >&2; exit 1 ;; \
+     esac \
+  && if [ "${MISE_VERSION}" = latest ]; then \
+       release_path=latest; \
+     else \
+       release_path="tags/v${MISE_VERSION#v}"; \
+     fi \
+  && release="$(curl -fsSL "${MISE_RELEASES}/${release_path}")" \
+  && tag="$(printf '%s' "${release}" | jq -er .tag_name)" \
+  && asset="mise-${tag}-linux-${architecture}.tar.gz" \
+  && download="$(printf '%s' "${release}" | jq -er --arg name "${asset}" \
+       '.assets[] | select(.name == $name) | .browser_download_url')" \
+  && sums_url="$(printf '%s' "${release}" | jq -er \
+       '.assets[] | select(.name == "SHASUMS256.txt") | .browser_download_url')" \
+  && curl -fsSL -o "/tmp/${asset}" "${download}" \
+  && curl -fsSL -o /tmp/SHASUMS256.txt "${sums_url}" \
+  && (cd /tmp && awk -v name="${asset}" '$2 == name { print $1 "  " $2 }' \
+       SHASUMS256.txt | sha256sum -c --strict) \
+  && tar -xzf "/tmp/${asset}" -C /tmp mise/bin/mise \
+  && install -m 0755 /tmp/mise/bin/mise /usr/local/bin/mise \
+  && rm -rf "/tmp/${asset}" /tmp/SHASUMS256.txt /tmp/mise
+
+ENV MISE_DATA_DIR="/home/dev/.local/share/mise"
+ENV MISE_CONFIG_DIR="/home/dev/.local/share/mise/config"
+ENV MISE_CACHE_DIR="/home/dev/.local/share/mise/cache"
+ENV MISE_STATE_DIR="/home/dev/.local/share/mise/state"
+ENV MISE_TRUSTED_CONFIG_PATHS="/workspace"
+ENV PATH="/home/dev/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+RUN printf 'export PATH="/home/dev/.local/share/mise/shims:$PATH"\n' \
+      > /etc/profile.d/prison-mise.sh
+
 # `C.UTF-8` needs no locale generation. Without it, full-screen interfaces
 # draw boxes in ASCII.
 ENV LANG=C.UTF-8

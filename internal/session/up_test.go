@@ -239,3 +239,39 @@ func TestCreateOrStartBoxRecreate(t *testing.T) {
 		t.Fatalf("record.Box = %+v, want prison/box:new", record.Box)
 	}
 }
+
+func TestMiseDirectoryIsPersistedAndMounted(t *testing.T) {
+	root, err := state.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectDir := t.TempDir()
+	project, err := root.Project(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Session{
+		Environment: &Environment{Root: root},
+		Directory:   projectDir,
+		Project:     project,
+	}
+
+	if err := s.prepareDirectories(nil); err != nil {
+		t.Fatalf("prepareDirectories: %v", err)
+	}
+	if info, err := os.Stat(project.MiseDir()); err != nil || !info.IsDir() {
+		t.Fatalf("MiseDir %s not created: %v", project.MiseDir(), err)
+	}
+	if !slices.Contains(s.PersistPaths(), MiseGuestDir) {
+		t.Fatalf("PersistPaths() = %v, want %s", s.PersistPaths(), MiseGuestDir)
+	}
+	mounted := false
+	for _, mount := range s.Mounts(nil) {
+		if mount.Target == MiseGuestDir && mount.Source == project.MiseDir() && !mount.ReadOnly {
+			mounted = true
+		}
+	}
+	if !mounted {
+		t.Fatalf("Mounts() = %+v, missing writable mount for %s", s.Mounts(nil), MiseGuestDir)
+	}
+}

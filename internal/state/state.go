@@ -79,6 +79,10 @@ func (r *Root) InmatesDir() string {
 	return filepath.Join(r.Path, "inmates")
 }
 
+func (r *Root) EcosystemsDir() string {
+	return filepath.Join(r.Path, "ecosystems")
+}
+
 func (r *Root) TrustDir() string {
 	return filepath.Join(r.Path, "trust")
 }

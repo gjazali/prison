@@ -22,6 +22,8 @@ import (
 
 const GuestHome = "/home/dev"
 
+const MiseGuestDir = GuestHome + "/.local/share/mise"
+
 const WorkspaceDir = "/workspace"
 
 const TrustStorePath = "/etc/ssl/certs/ca-certificates.crt"
@@ -33,8 +35,6 @@ var TrustStoreVariables = []string{
 	"CURL_CA_BUNDLE",
 	"GIT_SSL_CAINFO",
 }
-
-var AutomaticShadowPaths = []string{"node_modules", ".venv"}
 
 // PlaceholderToken returns the fake API key that inmates see. The broker
 // replaces it with the real credential.
@@ -192,33 +192,26 @@ func yesNo(value bool) string {
 }
 
 func (s *Session) ShadowPaths() []string {
+	if s.Config == nil || len(s.Config.Box.Shadow) == 0 {
+		return nil
+	}
 	seen := map[string]bool{}
 	var paths []string
-	add := func(candidate string) {
+	for _, candidate := range s.Config.Box.Shadow {
 		candidate = strings.Trim(candidate, "/")
 		if candidate == "" || seen[candidate] {
-			return
+			continue
 		}
 		seen[candidate] = true
 		paths = append(paths, candidate)
-	}
-	for _, candidate := range AutomaticShadowPaths {
-		if directoryExists(filepath.Join(s.Directory, candidate)) {
-			add(candidate)
-		}
-	}
-	if s.Config != nil {
-		for _, candidate := range s.Config.Box.Shadow {
-			add(candidate)
-		}
 	}
 	sort.Strings(paths)
 	return paths
 }
 
 func (s *Session) PersistPaths() []string {
-	seen := map[string]bool{}
-	var paths []string
+	seen := map[string]bool{MiseGuestDir: true}
+	paths := []string{MiseGuestDir}
 	for _, inmate := range s.Inmates {
 		for _, guestPath := range inmate.Persist.Paths {
 			if !seen[guestPath] {
@@ -265,6 +258,10 @@ func (s *Session) Mounts(shadowPaths []string) []isolator.Mount {
 			ReadOnly: true,
 		})
 	}
+	mounts = append(mounts, isolator.Mount{
+		Source: s.Project.MiseDir(),
+		Target: MiseGuestDir,
+	})
 	for _, inmate := range s.Inmates {
 		for _, guestPath := range inmate.Persist.Paths {
 			mounts = append(mounts, isolator.Mount{

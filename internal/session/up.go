@@ -271,6 +271,9 @@ func (s *Session) prepareDirectories(shadowPaths []string) error {
 	if err := os.MkdirAll(s.Project.EmptyDir(), 0o555); err != nil {
 		return err
 	}
+	if err := os.MkdirAll(s.Project.MiseDir(), 0o700); err != nil {
+		return err
+	}
 	for _, inmate := range s.Inmates {
 		for _, guestPath := range inmate.Persist.Paths {
 			host := s.hostPathForGuestPath(inmate, guestPath)
@@ -598,13 +601,7 @@ func (s *Session) runBoxCommands(ctx context.Context) {
 // runSetup saves the signature only when every command succeeds, so a failed
 // setup runs again on the next `prison up`.
 func (s *Session) runSetup(ctx context.Context, force bool) error {
-	commands, missing, err := s.SetupCommands(ctx)
-	if err != nil {
-		return err
-	}
-	for _, note := range missing {
-		ui.Warn("%s", note)
-	}
+	commands := s.SetupCommands()
 	if len(commands) == 0 {
 		return nil
 	}

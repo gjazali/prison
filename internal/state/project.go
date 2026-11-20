@@ -213,6 +213,10 @@ func (p *Project) CheckpointsDir() string {
 	return filepath.Join(p.Dir, "checkpoints")
 }
 
+func (p *Project) MiseDir() string {
+	return filepath.Join(p.Dir, "mise")
+}
+
 func (p *Project) Size() (int64, error) {
 	var total int64
 	err := filepath.WalkDir(p.Dir, func(path string, entry fs.DirEntry, err error) error {

@@ -28,6 +28,7 @@ type Overrides struct {
 	Ports      *[]int
 	Image      string
 	Foundation string
+	Ecosystems string
 	Root       string
 	Domain     string
 	Network    string
@@ -40,6 +41,7 @@ func ReadOverrides(getenv func(string) (string, bool)) (*Overrides, error) {
 	overrides := &Overrides{
 		Image:      valueOf(getenv, "PRISON_IMAGE"),
 		Foundation: valueOf(getenv, "PRISON_FOUNDATION"),
+		Ecosystems: valueOf(getenv, "PRISON_ECOSYSTEMS"),
 		Domain:     defaultDomain,
 		Network:    defaultNetwork,
 	}

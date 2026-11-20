@@ -151,13 +151,15 @@ included here since Prison already mounts over a part of it.
 
 ##### `commands`
 
-These are commands that runs in order in the box after creation. Prison is able
-to detect ecosystems and their corresponding lockfiles, and it will run the
-right installers for each of them.
+These are commands that run in order in the box after creation. You can run
+`prison ecosystem init` to detect your project's ecosystems and have Prison
+propose `[box] shadow`, `[setup] commands`, `[checkpoint] ignore`, and
+`[egress] hosts` entries for `prison.toml`.
 
-These commands only run once per box. Use `prison setup --force` to re-run them
-all. They also re-run after a `prison rm`. For installs that failed partway
-through, use `prison setup`.
+These commands will only run once per box. Use `prison setup --force` if you
+ever need to re-run them. They also get re-run after a `prison rm` or
+`prison up --recreate`. For installs that failed partway through, use
+`prison setup`.
 
 #### `[checkpoint]`
 
@@ -295,14 +297,15 @@ a box with this and that box lacks an Inmate's command, you will get a refusal.
 The list of variables below have no config file equivalent. They are used to
 tell Prison where to put things on the host machine:
 
-| Variable             | Sets                              | Default     |
-| -------------------- | --------------------------------- | ----------- |
-| `PRISON_ROOT`        | the state root                    | `~/.prison` |
-| `PRISON_DOMAIN`      | the suffix box hostnames get      | `prison`    |
-| `PRISON_NETWORK`     | the network boxes attach to       | `prison`    |
-| `PRISON_BROKER_PORT` | the port the broker binds         | `8787`      |
-| `PRISON_PORT_BASE`   | first host port used to publish   | `40000`     |
-| `PRISON_PORT_LIMIT`  | last host port used to publish    | `40100`     |
+| Variable             | Sets                              | Default                |
+| -------------------- | --------------------------------- | ---------------------- |
+| `PRISON_ROOT`        | the state root                    | `~/.prison`            |
+| `PRISON_ECOSYSTEMS`  | local ecosystem catalog directory | `~/.prison/ecosystems` |
+| `PRISON_DOMAIN`      | the suffix box hostnames get      | `prison`               |
+| `PRISON_NETWORK`     | the network boxes attach to       | `prison`               |
+| `PRISON_BROKER_PORT` | the port the broker binds         | `8787`                 |
+| `PRISON_PORT_BASE`   | first host port used to publish   | `40000`                |
+| `PRISON_PORT_LIMIT`  | last host port used to publish    | `40100`                |
 
 `PRISON_PORT_BASE` and `PRISON_PORT_LIMIT` defines the range of ports on the
 host machine that is mapped to the guest ports defined in `PRISON_PORTS`. The
