@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -525,5 +526,47 @@ func TestTakeDoesNotOpenFIFO(t *testing.T) {
 	}
 	if err := store.storeEntryContent(project, &manifest[0]); err == nil {
 		t.Errorf("storeEntryContent(pipe) = nil error, want an error")
+	}
+}
+
+func TestRenameUpdatesOnlyTheLabel(t *testing.T) {
+	store := newTestStore(t)
+	writeProjectFile(t, store, "a.txt", "hello\n", 0o644)
+	taken, err := store.Take("original")
+	if err != nil {
+		t.Fatalf("Take: %v", err)
+	}
+
+	identifier, err := store.Rename("1", "before refactor")
+	if err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+	if identifier != taken.ID {
+		t.Fatalf("Rename id = %q, want %q", identifier, taken.ID)
+	}
+	updated, err := store.Metadata(taken.ID)
+	if err != nil {
+		t.Fatalf("Metadata: %v", err)
+	}
+	if updated.Label != "before refactor" {
+		t.Errorf("Label = %q, want before refactor", updated.Label)
+	}
+	if updated.Entries != taken.Entries || !updated.Time.Equal(taken.Time.Truncate(time.Second)) {
+		t.Errorf("Metadata changed unexpectedly: got %+v, took %+v", updated, taken.Metadata)
+	}
+
+	if _, err := store.Rename(taken.ID, ""); err != nil {
+		t.Fatalf("Rename(clear): %v", err)
+	}
+	cleared, err := store.Metadata(taken.ID)
+	if err != nil {
+		t.Fatalf("Metadata after clear: %v", err)
+	}
+	if cleared.Label != "" {
+		t.Errorf("Label after clear = %q, want empty", cleared.Label)
+	}
+
+	if _, err := store.Rename("99", "missing"); err == nil {
+		t.Error("Rename(99) = nil, want an error")
 	}
 }

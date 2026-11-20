@@ -297,6 +297,12 @@ prison checkpoint back
 prison checkpoint forward
 ```
 
+To rename a checkpoint's label:
+
+<pre>
+prison checkpoint rename <b><i>id</i></b> <b><i>new_label</i></b>
+</pre>
+
 And to forget a checkpoint, simply run:
 
 <pre>

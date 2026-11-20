@@ -21,7 +21,7 @@ func init() {
 }
 
 const checkpointSubcommands = "take, list, diff, merge, pick, restore, " +
-	"back, forward, remove, or prune"
+	"back, forward, rename, remove, or prune"
 
 func addCheckpointCommands(root *cobra.Command) {
 	group := &cobra.Command{
@@ -47,6 +47,7 @@ func addCheckpointCommands(root *cobra.Command) {
 		newCheckpointPickCommand(),
 		newCheckpointBackCommand(),
 		newCheckpointForwardCommand(),
+		newCheckpointRenameCommand(),
 		newCheckpointRemoveCommand(),
 		newCheckpointPruneCommand(),
 	)
@@ -174,6 +175,31 @@ func newCheckpointForwardCommand() *cobra.Command {
 			return runCheckpointStep(1)
 		},
 	}
+}
+
+func newCheckpointRenameCommand() *cobra.Command {
+	var clearLabel bool
+	command := &cobra.Command{
+		Use:   "rename <id> [label...]",
+		Short: "change a checkpoint's label",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if clearLabel && len(arguments) > 1 {
+				return fmt.Errorf("cannot pass a label with `--clear`")
+			}
+			if !clearLabel && len(arguments) < 2 {
+				return fmt.Errorf("pass a new label or `--clear`")
+			}
+			label := ""
+			if !clearLabel {
+				label = strings.Join(arguments[1:], " ")
+			}
+			return runCheckpointRename(arguments[0], label)
+		},
+	}
+	command.Flags().BoolVar(&clearLabel, "clear", false,
+		"remove the checkpoint's label")
+	return command
 }
 
 func newCheckpointRemoveCommand() *cobra.Command {
@@ -520,6 +546,24 @@ func runCheckpointPick(
 	if result.Conflicted > 0 {
 		return ui.Exit(1, "")
 	}
+	return nil
+}
+
+func runCheckpointRename(wanted, label string) error {
+	store, unlock, err := openLockedCheckpointStore()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	identifier, err := store.Rename(wanted, label)
+	if err != nil {
+		return err
+	}
+	if label == "" {
+		fmt.Printf("cleared label of checkpoint %s\n", identifier)
+		return nil
+	}
+	fmt.Printf("renamed checkpoint %s to %q\n", identifier, label)
 	return nil
 }
 

@@ -361,6 +361,31 @@ func (store *Store) writeObject(content io.Reader) (string, error) {
 	return digest, nil
 }
 
+// Rename replaces the label of a checkpoint without changing its ID or contents.
+func (store *Store) Rename(wanted, label string) (string, error) {
+	identifier, err := store.Resolve(wanted)
+	if err != nil {
+		return "", err
+	}
+	metadata, err := store.Metadata(identifier)
+	if err != nil {
+		return "", err
+	}
+	metadata.Label = label
+	document, err := json.MarshalIndent(metadata.document(), "", "  ")
+	if err != nil {
+		return "", fmt.Errorf(
+			"cannot write the details of checkpoint %s: %w", identifier, err)
+	}
+	if err := state.WriteFileAtomic(
+		store.snapshotPath(identifier, metadataSuffix),
+		append(document, '\n'), 0o644); err != nil {
+		return "", fmt.Errorf(
+			"cannot write the details of checkpoint %s: %w", identifier, err)
+	}
+	return identifier, nil
+}
+
 // Remove leaves the objects of the checkpoint for `Prune`.
 func (store *Store) Remove(wanted string) error {
 	identifier, err := store.Resolve(wanted)
