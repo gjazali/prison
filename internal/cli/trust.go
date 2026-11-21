@@ -123,8 +123,11 @@ func showConfigurationBeingTrusted(
 }
 
 func resolveTrustDiffTool(currentSession *session.Session) string {
-	diffTool := config.ResolveDiffTool(
-		currentSession.Overrides, currentSession.Global)
+	return resolveDiffTool(currentSession.Overrides, currentSession.Global)
+}
+
+func resolveDiffTool(overrides *config.Overrides, global *config.Global) string {
+	diffTool := config.ResolveDiffTool(overrides, global)
 	program := strings.Fields(diffTool)
 	if len(program) == 0 {
 		return ""

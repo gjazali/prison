@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"prison/internal/checkpoint/textdiff"
-	"prison/internal/config"
 	"prison/internal/ecosystem"
 	"prison/internal/session"
 	"prison/internal/state"
@@ -299,26 +298,50 @@ func showProposedConfig(
 	out io.Writer, environment *session.Environment,
 	existing, proposed []byte, existed bool,
 ) {
+	renderProposedConfig(out, environment, existing, proposed, existed, out == os.Stdout)
+}
+
+func renderProposedConfig(
+	out io.Writer, environment *session.Environment,
+	existing, proposed []byte, existed, allowDiffTool bool,
+) {
+	diffText := formatProposedConfigDiff(existing, proposed, existed)
+	if allowDiffTool {
+		diffTool := resolveDiffTool(environment.Overrides, environment.Global)
+		if diffTool != "" {
+			if !existed {
+				fmt.Fprintln(out, "\nproposed prison.toml:")
+			} else {
+				fmt.Fprintln(out)
+			}
+			if err := pipeThroughCommandTo(out, diffTool, strings.NewReader(diffText)); err == nil {
+				fmt.Fprintln(out)
+				return
+			} else {
+				ui.Warn("%v", err)
+			}
+		}
+	}
 	if !existed {
 		fmt.Fprintf(out, "\nproposed prison.toml:\n%s\n",
 			ui.Indent(string(proposed), "  "))
 		return
 	}
-	beforeLines := splitTerminatedLines(string(existing))
-	afterLines := splitTerminatedLines(string(proposed))
-	unified := textdiff.Unified(
-		beforeLines, afterLines,
-		"prison.toml (current)", "prison.toml (proposed)",
-		3, true)
-	diffText := strings.Join(unified, "\n") + "\n"
-	diffTool := config.ResolveDiffTool(environment.Overrides, environment.Global)
-	if out == os.Stdout && diffTool != "" {
-		if err := pipeThroughCommand(diffTool, strings.NewReader(diffText)); err == nil {
-			fmt.Fprintln(out)
-			return
-		}
-	}
 	fmt.Fprintf(out, "\n%s\n", diffText)
+}
+
+func formatProposedConfigDiff(existing, proposed []byte, existed bool) string {
+	beforeLabel := "/dev/null"
+	afterLabel := session.ProjectConfigFileName
+	var beforeLines []string
+	if existed {
+		beforeLabel = "prison.toml (current)"
+		afterLabel = "prison.toml (proposed)"
+		beforeLines = splitTerminatedLines(string(existing))
+	}
+	afterLines := splitTerminatedLines(string(proposed))
+	unified := textdiff.Unified(beforeLines, afterLines, beforeLabel, afterLabel, 3, true)
+	return strings.Join(unified, "\n") + "\n"
 }
 
 func splitTerminatedLines(text string) []string {
