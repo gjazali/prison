@@ -77,7 +77,11 @@ func runShell() error {
 	if err := requireInteractiveTerminal("shell"); err != nil {
 		return err
 	}
-	return execInBox(ctx, current, "exec bash -l", true)
+	client, err := current.EnsureBrokerReady(ctx)
+	if err != nil {
+		return err
+	}
+	return execInBox(ctx, current, client, "exec bash -l", true)
 }
 
 func runRun(arguments []string) error {
@@ -90,7 +94,11 @@ func runRun(arguments []string) error {
 	if err := current.RequireRunning(ctx); err != nil {
 		return err
 	}
-	return execInBox(ctx, current, strings.Join(arguments, " "),
+	client, err := current.EnsureBrokerReady(ctx)
+	if err != nil {
+		return err
+	}
+	return execInBox(ctx, current, client, strings.Join(arguments, " "),
 		hasInteractiveTerminal())
 }
 
@@ -118,15 +126,17 @@ func runInmateSession(name string, yolo bool) error {
 	if err := requireCommandInBox(ctx, current, inmate, line); err != nil {
 		return err
 	}
-	if inmate.Auth != nil {
-		if client := liveBrokerClient(ctx, current); client != nil {
-			if err := current.EnsureVaultUnlockedForInmate(ctx, client, inmate); err != nil {
-				return err
-			}
-			current.SyncInmateHost(ctx, client, inmate)
-		}
+	client, err := current.EnsureBrokerReady(ctx)
+	if err != nil {
+		return err
 	}
-	return execInBox(ctx, current, "exec "+line, true)
+	if inmate.Auth != nil {
+		if err := current.EnsureVaultUnlockedForInmate(ctx, client, inmate); err != nil {
+			return err
+		}
+		current.SyncInmateHost(ctx, client, inmate)
+	}
+	return execInBox(ctx, current, client, "exec "+line, true)
 }
 
 func sessionCommandLine(inmate *plugin.Inmate, yolo bool) (string, error) {
@@ -206,11 +216,10 @@ func resolveBoxImageTag(current *session.Session) (string, error) {
 	return plan.Final, nil
 }
 
-func execInBox(ctx context.Context, current *session.Session, line string,
-	tty bool) error {
+func execInBox(ctx context.Context, current *session.Session,
+	client *control.Client, line string, tty bool) error {
 	term := current.ResolveTerm(ctx)
-	environment, err := current.ExecEnvironment(
-		ctx, liveBrokerClient(ctx, current), term)
+	environment, err := current.ExecEnvironment(ctx, client, term)
 	if err != nil {
 		return err
 	}
@@ -245,15 +254,6 @@ func execInBox(ctx context.Context, current *session.Session, line string,
 		return &ui.ExitError{Status: status}
 	}
 	return nil
-}
-
-func liveBrokerClient(ctx context.Context,
-	current *session.Session) *control.Client {
-	client := control.NewClient(current.Root.BrokerSocket())
-	if !client.Alive(ctx) {
-		return nil
-	}
-	return client
 }
 
 func hasInteractiveTerminal() bool {

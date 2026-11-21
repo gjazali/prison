@@ -1,6 +1,9 @@
 package guest
 
 import (
+	"context"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -137,5 +140,53 @@ func TestParentsUnderHome(t *testing.T) {
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("parentsUnderHome(%q) = %v, want %v", c.path, got, c.want)
 		}
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return fn(r)
+}
+
+func TestFirstLiteralHost(t *testing.T) {
+	body := "# comment\n\n*.googleapis.com:443\ngithub.com:443\npypi.org\n"
+	if got := firstLiteralHost(body); got != "github.com" {
+		t.Errorf("firstLiteralHost = %q, want github.com", got)
+	}
+	if got := firstLiteralHost("*.example.com\n"); got != "" {
+		t.Errorf("firstLiteralHost(wildcard only) = %q, want empty", got)
+	}
+}
+
+func TestCheckBrokerReady(t *testing.T) {
+	clientWith := func(status int, body string) *boxClient {
+		return &boxClient{
+			baseURL: "http://broker.prison",
+			httpClient: &http.Client{
+				Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+					return &http.Response{
+						StatusCode: status,
+						Status:     http.StatusText(status),
+						Body:       io.NopCloser(strings.NewReader(body)),
+					}, nil
+				}),
+			},
+		}
+	}
+	if err := checkBrokerReady(context.Background(),
+		clientWith(http.StatusOK, "*.example.com\n"),
+		"127.0.0.1:1", readyTimeout); err != nil {
+		t.Fatalf("checkBrokerReady(wildcard ok) = %v, want nil", err)
+	}
+	if err := checkBrokerReady(context.Background(),
+		clientWith(http.StatusOK, "\n"),
+		"127.0.0.1:1", readyTimeout); err == nil {
+		t.Fatal("checkBrokerReady(empty hosts) = nil, want error")
+	}
+	if err := checkBrokerReady(context.Background(),
+		clientWith(http.StatusProxyAuthRequired, "denied"),
+		"127.0.0.1:1", readyTimeout); err == nil {
+		t.Fatal("checkBrokerReady(407) = nil, want error")
 	}
 }

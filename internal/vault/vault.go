@@ -77,6 +77,7 @@ type Vault struct {
 	document      *Document
 	loadedModTime time.Time
 	loadedSize    int64
+	loadedInode   uint64
 }
 
 func Exists(path string) bool {
@@ -404,6 +405,14 @@ func (v *Vault) lockAndReload() (unlock func(), err error) {
 	return func() { file.Close() }, nil
 }
 
+// Reload forces a fresh read and decryption of the vault file from disk.
+func (v *Vault) Reload() error {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+	v.document = nil
+	return v.reloadLocked()
+}
+
 func (v *Vault) reloadLocked() error {
 	if v.key == nil {
 		return ErrLocked
@@ -414,7 +423,8 @@ func (v *Vault) reloadLocked() error {
 		return fmt.Errorf("cannot read the vault: %w", err)
 	}
 	if v.document != nil && info.Size() == v.loadedSize &&
-		info.ModTime().Equal(v.loadedModTime) {
+		info.ModTime().Equal(v.loadedModTime) &&
+		fileInode(info) == v.loadedInode {
 		return nil
 	}
 	parsed, info, err := readContainer(v.path)
@@ -435,6 +445,7 @@ func (v *Vault) setLoaded(document *Document, info fs.FileInfo) {
 	v.document = document
 	v.loadedModTime = info.ModTime()
 	v.loadedSize = info.Size()
+	v.loadedInode = fileInode(info)
 }
 
 func (v *Vault) writeLocked(document *Document) error {

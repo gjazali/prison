@@ -19,6 +19,11 @@ import (
 	"prison/internal/vault"
 )
 
+const (
+	listenerReadyTimeout  = 10 * time.Second
+	listenerReadyInterval = 500 * time.Millisecond
+)
+
 type UpOptions struct {
 	Recreate bool
 }
@@ -124,17 +129,9 @@ func (s *Session) Up(ctx context.Context, options UpOptions) (*UpResult, error) 
 	}
 	result.Created = created
 
-	if network.Gateway != "" {
-		listener, err := client.Listen(ctx, network.Gateway)
-		switch {
-		case err != nil:
-			ui.Warn("cannot ask the broker to listen on %s: %v",
-				network.Gateway, err)
-		case listener != nil && !listener.Bound:
-			// The box has no outbound path without this listener.
-			ui.Warn("the broker is not listening on %s: %s", network.Gateway,
-				listenerFailureText(listener))
-		}
+	s.ensureHostRoute(ctx, network)
+	if err := s.ensureBrokerListener(ctx, client, network.Gateway); err != nil {
+		return nil, err
 	}
 
 	if err := s.WaitUntilReady(ctx); err != nil {
@@ -142,7 +139,6 @@ func (s *Session) Up(ctx context.Context, options UpOptions) (*UpResult, error) 
 	}
 	s.publishPorts(ctx, client, ports)
 
-	s.ensureHostRoute(ctx, network)
 	s.runHostOperations(ctx, client)
 	s.runBoxCommands(ctx)
 
@@ -184,6 +180,59 @@ func (s *Session) ensureBroker(ctx context.Context) (*control.Client, error) {
 		return nil, fmt.Errorf("cannot start the broker: %w", err)
 	}
 	return client, nil
+}
+
+// EnsureBrokerReady verifies the broker is alive, matches this CLI version,
+// is listening on the box network gateway, and has this project's profile.
+func (s *Session) EnsureBrokerReady(ctx context.Context) (*control.Client, error) {
+	client, err := s.ensureBroker(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if network, err := s.Isolator.Network(ctx, s.Overrides.Network); err == nil &&
+		network.Gateway != "" {
+		s.ensureHostRoute(ctx, network)
+		if err := s.ensureBrokerListener(ctx, client, network.Gateway); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := s.Project.Token(); err != nil {
+		return nil, err
+	}
+	if err := s.pushProfile(ctx, client); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+func (s *Session) ensureBrokerListener(
+	ctx context.Context, client *control.Client, gateway string,
+) error {
+	if gateway == "" {
+		return nil
+	}
+	deadline := time.Now().Add(listenerReadyTimeout)
+	var lastListener *control.Listener
+	for {
+		listener, err := client.Listen(ctx, gateway)
+		if err != nil {
+			return fmt.Errorf("cannot ask the broker to listen on %s: %w",
+				gateway, err)
+		}
+		if listener != nil && listener.Bound {
+			return nil
+		}
+		lastListener = listener
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("the broker is not listening on %s: %s",
+				gateway, listenerFailureText(lastListener))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(listenerReadyInterval):
+		}
+	}
 }
 
 func (s *Session) unlockVaultIfNeeded(ctx context.Context,

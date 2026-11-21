@@ -75,6 +75,47 @@ func (r *Root) BrokerPIDFile() string {
 	return filepath.Join(r.Path, "broker.pid")
 }
 
+func (r *Root) BrokerListenersFile() string {
+	return filepath.Join(r.Path, "broker-listeners.json")
+}
+
+func (r *Root) BrokerListeners() ([]string, error) {
+	var addresses []string
+	found, err := readJSONFile(r.BrokerListenersFile(), &addresses)
+	if err != nil {
+		return nil, err
+	}
+	if !found || len(addresses) == 0 {
+		return nil, nil
+	}
+	return normalizeListenerAddresses(addresses), nil
+}
+
+func (r *Root) SaveBrokerListeners(addresses []string) error {
+	cleaned := normalizeListenerAddresses(addresses)
+	if len(cleaned) == 0 {
+		if err := os.Remove(r.BrokerListenersFile()); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("cannot remove %s: %w", r.BrokerListenersFile(), err)
+		}
+		return nil
+	}
+	return writeJSONFile(r.BrokerListenersFile(), cleaned)
+}
+
+func normalizeListenerAddresses(addresses []string) []string {
+	seen := make(map[string]bool, len(addresses))
+	cleaned := make([]string, 0, len(addresses))
+	for _, address := range addresses {
+		trimmed := strings.TrimSpace(address)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		cleaned = append(cleaned, trimmed)
+	}
+	return cleaned
+}
+
 func (r *Root) InmatesDir() string {
 	return filepath.Join(r.Path, "inmates")
 }

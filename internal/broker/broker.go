@@ -69,8 +69,9 @@ type Broker struct {
 	vault       *vault.Vault
 	authorities *ca.Authorities
 
-	listeners listenerManager
-	forwards  forwardTable
+	listeners     listenerManager
+	probeListener func(address string, port int) error
+	forwards      forwardTable
 
 	limiter *limits.RateLimiter
 	agent   *signing.Agent
@@ -117,6 +118,7 @@ func Run(ctx context.Context, options Options) error {
 	if err := broker.reloadAll(); err != nil {
 		broker.logger.Print(err)
 	}
+	broker.restoreListeners()
 
 	controlServer := &http.Server{
 		Handler:           broker.controlHandler(),
@@ -178,6 +180,7 @@ func newBroker(ctx context.Context, options Options) *Broker {
 		oauth:             newOAuthCache(options.UpstreamTLSConfig, now),
 		inmateTransport:   relay.NewTransport(inmateResponseHeaderTimeout, options.UpstreamTLSConfig),
 		routeTransport:    relay.NewTransport(routeResponseHeaderTimeout, options.UpstreamTLSConfig),
+		probeListener:     defaultProbeListener,
 		shutdownRequested: make(chan struct{}),
 	}
 	broker.listeners.byAddress = map[string]*tcpListener{}

@@ -162,11 +162,11 @@ func (s *Session) WaitUntilReady(ctx context.Context) error {
 			lastOutput = strings.TrimSpace(output)
 		}
 		if time.Now().After(deadline) {
-			message := "the box resolver did not start"
+			message := "the box cannot reach the broker"
 			if lastOutput != "" {
 				message += ": " + lastOutput
 			}
-			return fmt.Errorf("%s. Run `prison rm`, then `prison up`", message)
+			return fmt.Errorf("%s. Run `prison broker status` or `prison up`", message)
 		}
 		select {
 		case <-ctx.Done():

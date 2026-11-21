@@ -183,7 +183,7 @@ func runInmateAuthSet(command *cobra.Command, options *inmateAuthSetOptions) err
 	if err != nil {
 		return err
 	}
-	opened, err := openSecretVault(environment.Root)
+	opened, passphrase, err := openSecretVaultWithPassphrase(environment.Root)
 	if err != nil {
 		return err
 	}
@@ -205,6 +205,7 @@ func runInmateAuthSet(command *cobra.Command, options *inmateAuthSetOptions) err
 	if err != nil {
 		return err
 	}
+	syncBrokerVault(environment.Root, passphrase)
 	verb := "saved"
 	if replaced {
 		verb = "replaced"
@@ -466,7 +467,7 @@ func runInmateAuthRemove(command *cobra.Command, options *inmateAuthRemoveOption
 	if err := vault.ValidateInmateProfile(profile); err != nil {
 		return err
 	}
-	opened, err := openSecretVault(environment.Root)
+	opened, passphrase, err := openSecretVaultWithPassphrase(environment.Root)
 	if err != nil {
 		return err
 	}
@@ -481,6 +482,7 @@ func runInmateAuthRemove(command *cobra.Command, options *inmateAuthRemoveOption
 			return fmt.Errorf("no %s credential for %s in profile %q",
 				options.variable, inmateName, profile)
 		}
+		syncBrokerVault(environment.Root, passphrase)
 		fmt.Fprintf(command.OutOrStdout(), "removed %s credential (%s, profile %s)\n",
 			inmateName, options.variable, profile)
 	} else {
@@ -492,6 +494,7 @@ func runInmateAuthRemove(command *cobra.Command, options *inmateAuthRemoveOption
 			return fmt.Errorf("no credentials for %s in profile %q",
 				inmateName, profile)
 		}
+		syncBrokerVault(environment.Root, passphrase)
 		if profile == vault.DefaultInmateProfile {
 			fmt.Fprintf(command.OutOrStdout(), "removed %s credentials\n", inmateName)
 		} else {

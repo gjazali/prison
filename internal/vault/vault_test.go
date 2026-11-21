@@ -310,6 +310,46 @@ func TestReloadSeesExternalWrite(t *testing.T) {
 	}
 }
 
+func TestReloadDetectsSameSizeAndMtimeReplacement(t *testing.T) {
+	first, path := newTestVault(t)
+	if _, err := first.PutSecret(&Secret{
+		Name:   "alpha",
+		Mode:   ModeExpose,
+		Value:  "aaaa1111",
+		Expose: &ExposeSpec{Variable: "ALPHA"},
+	}); err != nil {
+		t.Fatalf("PutSecret: %v", err)
+	}
+	beforeInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	second, err := Open(path, testPassphrase)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := second.PutSecret(&Secret{
+		Name:   "alpha",
+		Mode:   ModeExpose,
+		Value:  "bbbb2222",
+		Expose: &ExposeSpec{Variable: "ALPHA"},
+	}); err != nil {
+		t.Fatalf("second PutSecret: %v", err)
+	}
+	// Restore the old modification time so only the inode distinguishes the
+	// atomically replaced file.
+	if err := os.Chtimes(path, beforeInfo.ModTime(), beforeInfo.ModTime()); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+	got, found := first.Secret("alpha")
+	if !found || got.Value != "bbbb2222" {
+		t.Fatalf("Secret(alpha) = %+v, %v, want bbbb2222", got, found)
+	}
+	if err := first.Reload(); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+}
+
 func TestLock(t *testing.T) {
 	vault, _ := newTestVault(t)
 	vault.Lock()

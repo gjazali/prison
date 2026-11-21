@@ -282,6 +282,29 @@ func TestBrokerPID(t *testing.T) {
 	}
 }
 
+func TestBrokerListeners(t *testing.T) {
+	root := newTestRoot(t)
+	if addresses, err := root.BrokerListeners(); err != nil || len(addresses) != 0 {
+		t.Fatalf("BrokerListeners(absent) = %v, %v, want nil, nil", addresses, err)
+	}
+	if err := root.SaveBrokerListeners([]string{" 192.168.128.1 ", "", "192.168.128.1", "10.0.0.1"}); err != nil {
+		t.Fatalf("SaveBrokerListeners: %v", err)
+	}
+	addresses, err := root.BrokerListeners()
+	if err != nil {
+		t.Fatalf("BrokerListeners: %v", err)
+	}
+	if len(addresses) != 2 || addresses[0] != "192.168.128.1" || addresses[1] != "10.0.0.1" {
+		t.Fatalf("BrokerListeners = %v, want [192.168.128.1 10.0.0.1]", addresses)
+	}
+	if err := root.SaveBrokerListeners(nil); err != nil {
+		t.Fatalf("SaveBrokerListeners(nil): %v", err)
+	}
+	if _, err := os.Stat(root.BrokerListenersFile()); !os.IsNotExist(err) {
+		t.Errorf("broker-listeners.json survived empty save: %v", err)
+	}
+}
+
 func TestTrustRecords(t *testing.T) {
 	root := newTestRoot(t)
 	record, err := root.TrustRecord("inmate", "claude")

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -16,6 +17,7 @@ import (
 	"prison/internal/broker/control"
 	"prison/internal/session"
 	"prison/internal/ui"
+	"prison/internal/vault"
 )
 
 var brokerLogKinds = []string{
@@ -40,6 +42,7 @@ func addBrokerCommands(root *cobra.Command) {
 	}
 	group.AddCommand(
 		newBrokerStatusCommand(),
+		newBrokerRestartCommand(),
 		newBrokerStopCommand(),
 		newBrokerLogCommand(),
 		newBrokerServeCommand(),
@@ -65,6 +68,17 @@ func newBrokerStopCommand() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
 			return runBrokerStop(command)
+		},
+	}
+}
+
+func newBrokerRestartCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "restart",
+		Short: "restart the broker and restore its listeners",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, arguments []string) error {
+			return runBrokerRestart(command)
 		},
 	}
 }
@@ -121,7 +135,12 @@ func runBrokerStatus(command *cobra.Command) error {
 	if err != nil {
 		return fmt.Errorf("cannot get the broker status: %w", err)
 	}
-	fmt.Fprintf(out, "%-14s %s\n", "version", status.Version)
+	versionText := status.Version
+	if status.Version != environment.Version {
+		versionText = fmt.Sprintf("%s (CLI is %s; run `prison broker restart`)",
+			status.Version, environment.Version)
+	}
+	fmt.Fprintf(out, "%-14s %s\n", "version", versionText)
 	fmt.Fprintf(out, "%-14s %s\n", "state root", status.StateRoot)
 	fmt.Fprintf(out, "%-14s %d\n", "pid", status.PID)
 	fmt.Fprintf(out, "%-14s %s\n", "vault", describeVaultState(status.Vault))
@@ -197,6 +216,54 @@ func runBrokerStop(command *cobra.Command) error {
 		return fmt.Errorf("cannot stop the broker: %w", err)
 	}
 	fmt.Fprintln(command.OutOrStdout(), "the broker is stopping")
+	return nil
+}
+
+func runBrokerRestart(command *cobra.Command) error {
+	ctx, cancel := commandContext()
+	defer cancel()
+	environment, err := loadEnvironment()
+	if err != nil {
+		return err
+	}
+	socketPath := environment.Root.BrokerSocket()
+	client := control.NewClient(socketPath)
+	if client.Alive(ctx) {
+		if err := client.Shutdown(ctx); err != nil {
+			return fmt.Errorf("cannot stop the broker: %w", err)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for client.Alive(ctx) {
+			if !time.Now().Before(deadline) {
+				return fmt.Errorf("the broker on %s did not stop in time", socketPath)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(100 * time.Millisecond):
+			}
+		}
+	}
+	spawn := func() error {
+		return control.SpawnDetached(environment.Executable,
+			[]string{"broker", "serve"}, environment.Root.BrokerLog()+".err")
+	}
+	client, err = control.EnsureRunning(ctx, environment.Root, environment.Version, spawn)
+	if err != nil {
+		return fmt.Errorf("cannot start the broker: %w", err)
+	}
+	status, err := client.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("cannot read the restarted broker status: %w", err)
+	}
+	out := command.OutOrStdout()
+	fmt.Fprintf(out, "restarted the broker (pid %d)\n", status.PID)
+	for _, listener := range status.Listeners {
+		fmt.Fprintf(out, "%-14s %s\n", "listener", describeListener(listener))
+	}
+	if vault.Exists(environment.Root.VaultFile()) && status.Vault != control.VaultUnlocked {
+		fmt.Fprintln(out, "the vault is locked. Run `prison secret unlock`")
+	}
 	return nil
 }
 

@@ -146,6 +146,9 @@ func addSetupCommand(root *cobra.Command) {
 			if err := current.RequireRunning(ctx); err != nil {
 				return err
 			}
+			if _, err := current.EnsureBrokerReady(ctx); err != nil {
+				return err
+			}
 			current.WarnAboutUntrustedConfiguration()
 			return current.RunSetup(ctx, force)
 		},

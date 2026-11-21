@@ -283,9 +283,12 @@ func runSecretInit() error {
 	if passphrase == "" {
 		return errors.New("the passphrase is empty")
 	}
-	if _, err := vault.Create(path, passphrase); err != nil {
+	created, err := vault.Create(path, passphrase)
+	if err != nil {
 		return err
 	}
+	created.Lock()
+	syncBrokerVault(environment.Root, passphrase)
 	fmt.Printf("created %s\n", path)
 	return nil
 }
@@ -295,10 +298,11 @@ func runSecretAdd(options *secretAddOptions) error {
 	if err != nil {
 		return err
 	}
-	opened, err := openSecretVault(environment.Root)
+	opened, passphrase, err := openSecretVaultWithPassphrase(environment.Root)
 	if err != nil {
 		return err
 	}
+	defer opened.Lock()
 	secret, err := options.record()
 	if err != nil {
 		return err
@@ -310,6 +314,7 @@ func runSecretAdd(options *secretAddOptions) error {
 	if err != nil {
 		return err
 	}
+	syncBrokerVault(environment.Root, passphrase)
 	if !replaced {
 		fmt.Printf("added %s (%s)\n", secret.Name, describeSecret(secret))
 		return nil
@@ -476,10 +481,11 @@ func runSecretRemove(name string) error {
 	if err != nil {
 		return err
 	}
-	opened, err := openSecretVault(environment.Root)
+	opened, passphrase, err := openSecretVaultWithPassphrase(environment.Root)
 	if err != nil {
 		return err
 	}
+	defer opened.Lock()
 	grantingBySecret, err := secretGrantingProjects(environment.Root)
 	if err != nil {
 		return err
@@ -492,6 +498,7 @@ func runSecretRemove(name string) error {
 	if !removed {
 		return secretNotFoundError(name)
 	}
+	syncBrokerVault(environment.Root, passphrase)
 	fmt.Printf("removed %s\n", name)
 	switch len(granting) {
 	case 0:
@@ -512,10 +519,11 @@ func runSecretGrant(name string) error {
 	if err != nil {
 		return err
 	}
-	opened, err := openSecretVault(environment.Root)
+	opened, passphrase, err := openSecretVaultWithPassphrase(environment.Root)
 	if err != nil {
 		return err
 	}
+	defer opened.Lock()
 	secret, found := opened.Secret(name)
 	if !found {
 		return secretNotFoundError(name)
@@ -532,6 +540,7 @@ func runSecretGrant(name string) error {
 		}
 		ui.Progress("granted %s to %s", name, project.ID)
 	}
+	syncBrokerVault(environment.Root, passphrase)
 	fmt.Println(ui.Indent(describeSecretRecord(secret), "  "))
 	if secret.Mode == vault.ModeExpose {
 		ui.Warn("the box can read this secret as a variable")
@@ -563,6 +572,7 @@ func runSecretRevoke(name string) error {
 	if err := project.SetGrants(remaining); err != nil {
 		return err
 	}
+	reloadRunningBroker(environment.Root)
 	ui.Progress("revoked %s from %s", name, project.ID)
 	ui.Warn("running processes keep an exposed value. Restart the session")
 	return nil
@@ -721,15 +731,41 @@ func formatSecretLogStatus(status int) string {
 
 func openSecretVault(root *state.Root) (
 	*vault.Vault, error) {
+	opened, _, err := openSecretVaultWithPassphrase(root)
+	return opened, err
+}
+
+func openSecretVaultWithPassphrase(root *state.Root) (
+	*vault.Vault, string, error) {
 	path := root.VaultFile()
 	if !vault.Exists(path) {
-		return nil, missingSecretVaultError(path)
+		return nil, "", missingSecretVaultError(path)
 	}
 	passphrase, err := promptForVaultPassphrase("vault passphrase: ")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return vault.Open(path, passphrase)
+	opened, err := vault.Open(path, passphrase)
+	if err != nil {
+		return nil, "", err
+	}
+	return opened, passphrase, nil
+}
+
+// syncBrokerVault unlocks a running broker with the passphrase the user just
+// entered, or reloads an already-unlocked broker so changes apply immediately.
+func syncBrokerVault(root *state.Root, passphrase string) {
+	ctx, cancel := commandContext()
+	defer cancel()
+	client := control.NewClient(root.BrokerSocket())
+	status, err := client.Status(ctx)
+	if err != nil {
+		return
+	}
+	if status.Vault != control.VaultUnlocked && passphrase != "" {
+		_ = client.Unlock(ctx, passphrase)
+	}
+	_ = client.Reload(ctx)
 }
 
 // secretPassphraseDescriptor is the only way for a script to open the vault.

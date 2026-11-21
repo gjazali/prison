@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -221,4 +222,124 @@ func containsLine(lines []string, wanted string) bool {
 		}
 	}
 	return false
+}
+
+func TestBrokerRestoresPersistedListeners(t *testing.T) {
+	directory := shortTempDir(t)
+	root, err := state.OpenRoot(filepath.Join(directory, "root"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	runBroker := func() (*control.Client, chan error) {
+		done := make(chan error, 1)
+		go func() {
+			done <- Run(ctx, Options{Root: root, Version: "v1"})
+		}()
+		client := control.NewClient(root.BrokerSocket())
+		waitFor(t, 5*time.Second, "broker to start", func() bool {
+			return client.Alive(ctx)
+		})
+		return client, done
+	}
+
+	first, firstDone := runBroker()
+	listener, err := first.Listen(ctx, "127.0.0.1")
+	if err != nil || !listener.Bound {
+		t.Fatalf("first Listen = %+v, %v, want bound", listener, err)
+	}
+	saved, err := root.BrokerListeners()
+	if err != nil || len(saved) != 1 || saved[0] != "127.0.0.1" {
+		t.Fatalf("BrokerListeners = %v, %v, want [127.0.0.1]", saved, err)
+	}
+	if err := first.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first broker Run: %v", err)
+	}
+
+	second, secondDone := runBroker()
+	defer func() {
+		_ = second.Shutdown(ctx)
+		<-secondDone
+	}()
+	status, err := second.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Listeners) != 1 || status.Listeners[0].Address != "127.0.0.1" || !status.Listeners[0].Bound {
+		t.Fatalf("restored listeners = %+v, want bound 127.0.0.1", status.Listeners)
+	}
+}
+
+func TestBrokerRebindsStaleListener(t *testing.T) {
+	directory := shortTempDir(t)
+	root, err := state.OpenRoot(filepath.Join(directory, "root"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	b := newBroker(ctx, Options{Root: root, Version: "v1"})
+	defer b.closeListeners()
+
+	first := b.listen("127.0.0.1")
+	if !first.Bound || first.Port == 0 {
+		t.Fatalf("first listen = %+v, want bound", first)
+	}
+	var failOnce atomic.Bool
+	failOnce.Store(true)
+	b.probeListener = func(address string, port int) error {
+		if failOnce.Swap(false) {
+			return errors.New("stale socket")
+		}
+		return nil
+	}
+
+	rebound := b.listen("127.0.0.1")
+	if !rebound.Bound || rebound.Port == 0 {
+		t.Fatalf("rebound listen = %+v, want bound", rebound)
+	}
+	if rebound.Port == first.Port {
+		t.Errorf("rebound port = %d, want a fresh listener port", rebound.Port)
+	}
+}
+
+func TestReloadRefreshesVaultAndClearsOAuthCache(t *testing.T) {
+	h := newHarness(t, nil)
+	h.createVault(&vault.Secret{
+		Name:   "tok",
+		Mode:   vault.ModeExpose,
+		Value:  "first-val",
+		Expose: &vault.ExposeSpec{Variable: "TOK"},
+	})
+	h.grant("tok")
+	h.unlock()
+
+	external, err := vault.Open(h.root.VaultFile(), testPassphrase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer external.Lock()
+	if _, err := external.PutSecret(&vault.Secret{
+		Name:   "tok",
+		Mode:   vault.ModeExpose,
+		Value:  "secondval",
+		Expose: &vault.ExposeSpec{Variable: "TOK"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := h.client.Reload(context.Background()); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	lines, err := h.client.ProjectEnvironment(context.Background(), h.project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || lines[0] != "TOK=secondval" {
+		t.Fatalf("environment after Reload = %v, want [TOK=secondval]", lines)
+	}
 }

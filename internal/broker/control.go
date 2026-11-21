@@ -159,6 +159,10 @@ func (broker *Broker) handleReload(w http.ResponseWriter, r *http.Request) {
 		relay.WriteError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if err := broker.reloadVault(); err != nil {
+		relay.WriteError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -172,7 +172,12 @@ func (report *doctorReport) reportBroker(ctx context.Context) {
 		report.note("the broker stopped: %v", err)
 		return
 	}
-	report.detail("version", "%s", status.Version)
+	versionText := status.Version
+	if status.Version != report.environment.Version {
+		versionText = fmt.Sprintf("%s (CLI is %s; run `prison broker restart`)",
+			status.Version, report.environment.Version)
+	}
+	report.detail("version", "%s", versionText)
 	report.detail("pid", "%d", status.PID)
 	report.detail("vault", "%s", status.Vault)
 	for _, listener := range status.Listeners {

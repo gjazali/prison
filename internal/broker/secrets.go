@@ -28,8 +28,30 @@ func (broker *Broker) unlockVault(passphrase string) error {
 	broker.vault = opened
 	broker.authorities = ca.New(opened, broker.now)
 	broker.vaultMutex.Unlock()
+	if broker.oauth != nil {
+		broker.oauth.clear()
+	}
 	if previous != nil {
 		previous.Lock()
+	}
+	return nil
+}
+
+func (broker *Broker) reloadVault() error {
+	opened := broker.currentVault()
+	if opened == nil {
+		return nil
+	}
+	if err := opened.Reload(); err != nil {
+		return err
+	}
+	broker.vaultMutex.Lock()
+	if broker.vault == opened {
+		broker.authorities = ca.New(opened, broker.now)
+	}
+	broker.vaultMutex.Unlock()
+	if broker.oauth != nil {
+		broker.oauth.clear()
 	}
 	return nil
 }
