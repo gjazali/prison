@@ -32,7 +32,14 @@ them easily.
 
 ### Installing Prison and Its Dependencies
 
-Prison can be installed by cloning this repository and then building it:
+You can install Prison with Homebrew (macOS on Apple Silicon and Linux on
+`x86_64` or `arm64`):
+
+```
+brew install gjazali/tap/prison
+```
+
+Or build it from source by cloning this repository:
 
 ```
 git clone https://github.com/gjazali/prison.git ~/prison
@@ -41,7 +48,7 @@ make
 sudo ln -s ~/prison/bin/prison /usr/local/bin/prison
 ```
 
-#### On macOS
+#### macOS Dependencies
 
 On macOS, Prison requires Apple's
 [Container](https://opensource.apple.com/projects/container/) to be installed.
@@ -55,7 +62,7 @@ export PATH="~/prison/bin:$PATH"
 
 Restart your terminal after that.
 
-#### On Linux
+#### Linux Dependencies
 
 On Linux, for Prison to work, the host machine will need:
 

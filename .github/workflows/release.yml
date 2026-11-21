@@ -130,3 +130,90 @@ jobs:
               --title "$TAG"
           fi
           gh release upload "$TAG" dist/* --clobber
+
+  homebrew:
+    needs: [select, release]
+    if: needs.select.outputs.tag != ''
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: prison-${{ needs.select.outputs.tag }}-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/checkout@v7
+        with:
+          repository: gjazali/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+      - name: Update Formula/prison.rb
+        env:
+          TAG: ${{ needs.select.outputs.tag }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          DARWIN_ARM64_SHA="$(awk '{print $1}' "dist/prison-${TAG}-darwin-arm64.tar.gz.sha256")"
+          LINUX_AMD64_SHA="$(awk '{print $1}' "dist/prison-${TAG}-linux-amd64.tar.gz.sha256")"
+          LINUX_ARM64_SHA="$(awk '{print $1}' "dist/prison-${TAG}-linux-arm64.tar.gz.sha256")"
+
+          mkdir -p homebrew-tap/Formula
+          cat > homebrew-tap/Formula/prison.rb <<EOF
+          class Prison < Formula
+            desc "Run processes in a per-project micro-VM, isolated from your machine"
+            homepage "https://github.com/gjazali/prison"
+            version "${VERSION}"
+            license "Apache-2.0"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/gjazali/prison/releases/download/${TAG}/prison-${TAG}-darwin-arm64.tar.gz"
+                sha256 "${DARWIN_ARM64_SHA}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "https://github.com/gjazali/prison/releases/download/${TAG}/prison-${TAG}-linux-amd64.tar.gz"
+                sha256 "${LINUX_AMD64_SHA}"
+              end
+              on_arm do
+                url "https://github.com/gjazali/prison/releases/download/${TAG}/prison-${TAG}-linux-arm64.tar.gz"
+                sha256 "${LINUX_ARM64_SHA}"
+              end
+            end
+
+            def install
+              bin.install "prison"
+            end
+
+            def caveats
+              if OS.mac?
+                <<~EOS
+                  Prison requires Apple's Container runtime on macOS:
+                    brew install container
+                    container system start --enable-kernel-install
+                EOS
+              else
+                <<~EOS
+                  Prison on Linux requires KVM (/dev/kvm), Firecracker, BuildKit,
+                  nfs-kernel-server, and nftables. Run \`prison doctor\` to check setup.
+                EOS
+              end
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/prison --version")
+            end
+          end
+          EOF
+
+          cd homebrew-tap
+          if git diff --quiet Formula/prison.rb; then
+            echo "Formula/prison.rb is already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/prison.rb
+          git commit -m "prison ${VERSION}"
+          git push
