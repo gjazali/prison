@@ -242,6 +242,7 @@ func (driver *Driver) Exec(
 		Stdout:         spec.Stdout,
 		Stderr:         spec.Stderr,
 		InheritStreams: true,
+		Resizes:        spec.Resizes,
 	})
 }
 

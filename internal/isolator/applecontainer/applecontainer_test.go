@@ -1,15 +1,18 @@
 package applecontainer
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
+	"prison/internal/console"
 	"prison/internal/isolator"
 )
 
@@ -23,6 +26,7 @@ type fixtureResponse struct {
 type fixtureRunner struct {
 	responses map[string]fixtureResponse
 	calls     []string
+	commands  []Command
 }
 
 func newFixtureRunner() *fixtureRunner {
@@ -52,6 +56,7 @@ func (runner *fixtureRunner) Run(
 	line := strings.Join(
 		append([]string{command.Name}, command.Arguments...), " ")
 	runner.calls = append(runner.calls, line)
+	runner.commands = append(runner.commands, command)
 	response, present := runner.responses[line]
 	if !present {
 		return 1, nil
@@ -488,5 +493,89 @@ func TestBuildArgumentsIncludesNoCache(t *testing.T) {
 	joined := strings.Join(arguments, " ")
 	if !strings.Contains(joined, "--no-cache") {
 		t.Fatalf("buildArguments = %q, want --no-cache", joined)
+	}
+}
+
+func TestExecForwardsResizeChannel(t *testing.T) {
+	resizes := make(chan struct{}, 1)
+	runner := newFixtureRunner()
+	runner.answer("container exec --tty --interactive --uid 0 --gid 0 box sh",
+		fixtureResponse{})
+	_, err := newTestDriver(runner).Exec(context.Background(), isolator.ExecSpec{
+		Box:     "box",
+		Command: []string{"sh"},
+		TTY:     true,
+		Resizes: resizes,
+	})
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if len(runner.commands) != 1 || runner.commands[0].Resizes != resizes {
+		t.Fatalf("Command.Resizes = %v, want resize channel",
+			runner.commands[0].Resizes)
+	}
+}
+
+func TestSystemRunnerForwardsResizes(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("this host has no pty support")
+	}
+	multiplexer, device, err := console.OpenTerminalPair()
+	if err != nil {
+		t.Fatalf("OpenTerminalPair: %v", err)
+	}
+	defer device.Close()
+	defer multiplexer.Close()
+	if err := console.SetSize(int(device.Fd()), 24, 80); err != nil {
+		t.Fatalf("SetSize: %v", err)
+	}
+
+	stdoutReader, stdoutWriter := io.Pipe()
+	defer stdoutReader.Close()
+
+	resizes := make(chan struct{}, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	type runResult struct {
+		status int
+		err    error
+	}
+	finished := make(chan runResult, 1)
+	go func() {
+		status, err := SystemRunner{}.Run(ctx, Command{
+			Name: "/bin/sh",
+			Arguments: []string{"-c",
+				"trap 'stty size; kill $pid 2>/dev/null; exit 0' WINCH; " +
+					"echo ready; sleep 5 </dev/null >/dev/null 2>&1 & " +
+					"pid=$!; wait $pid; exit 1"},
+			Stdin:   device,
+			Stdout:  stdoutWriter,
+			Stderr:  io.Discard,
+			Resizes: resizes,
+		})
+		_ = stdoutWriter.Close()
+		finished <- runResult{status: status, err: err}
+	}()
+
+	scanner := bufio.NewScanner(stdoutReader)
+	if !scanner.Scan() || scanner.Text() != "ready" {
+		t.Fatalf("initial line = %q (err=%v), want ready",
+			scanner.Text(), scanner.Err())
+	}
+	if err := console.SetSize(int(device.Fd()), 42, 132); err != nil {
+		t.Fatalf("SetSize: %v", err)
+	}
+	resizes <- struct{}{}
+
+	if !scanner.Scan() {
+		t.Fatalf("missing resized output (err=%v)", scanner.Err())
+	}
+	if got := strings.TrimSpace(scanner.Text()); got != "42 132" {
+		t.Errorf("child saw size %q, want %q", got, "42 132")
+	}
+	result := <-finished
+	if result.err != nil || result.status != 0 {
+		t.Fatalf("Run = %d, %v, want 0, nil", result.status, result.err)
 	}
 }

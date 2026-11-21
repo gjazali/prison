@@ -10,6 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+
+	"prison/internal/console"
 )
 
 // Command describes a host program to run. Without `InheritStreams`, a nil
@@ -21,6 +24,7 @@ type Command struct {
 	Stdout         io.Writer
 	Stderr         io.Writer
 	InheritStreams bool
+	Resizes        <-chan struct{}
 }
 
 type Runner interface {
@@ -49,7 +53,12 @@ func (SystemRunner) Run(
 	if command.Stderr != nil {
 		process.Stderr = command.Stderr
 	}
-	err := process.Run()
+	var err error
+	if command.Resizes == nil {
+		err = process.Run()
+	} else {
+		err = runWithResizes(process, command.Resizes)
+	}
 	if err == nil {
 		return 0, nil
 	}
@@ -58,6 +67,33 @@ func (SystemRunner) Run(
 		return exitErr.ExitCode(), nil
 	}
 	return 0, fmt.Errorf("running %s: %w", command.Name, err)
+}
+
+func runWithResizes(process *exec.Cmd, resizes <-chan struct{}) error {
+	if err := process.Start(); err != nil {
+		return err
+	}
+	done := make(chan struct{})
+	var forwarding sync.WaitGroup
+	forwarding.Add(1)
+	go func() {
+		defer forwarding.Done()
+		for {
+			select {
+			case _, open := <-resizes:
+				if !open {
+					return
+				}
+				console.SignalResize(process.Process)
+			case <-done:
+				return
+			}
+		}
+	}()
+	err := process.Wait()
+	close(done)
+	forwarding.Wait()
+	return err
 }
 
 func (driver *Driver) runCapturing(

@@ -64,6 +64,7 @@ type ExecSpec struct {
 	Stdin       io.Reader
 	Stdout      io.Writer
 	Stderr      io.Writer
+	Resizes     <-chan struct{}
 }
 
 // BuildSpec describes one image build. `Dockerfile` is relative to `Context`.

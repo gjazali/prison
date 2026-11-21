@@ -45,6 +45,7 @@ type ExecRequest struct {
 	Stdin       io.Reader
 	Stdout      io.Writer
 	Stderr      io.Writer
+	Resizes     <-chan struct{}
 }
 
 func (s *Session) Exec(ctx context.Context, request ExecRequest) (int, error) {
@@ -64,6 +65,7 @@ func (s *Session) Exec(ctx context.Context, request ExecRequest) (int, error) {
 		Stdin:       request.Stdin,
 		Stdout:      request.Stdout,
 		Stderr:      request.Stderr,
+		Resizes:     request.Resizes,
 	})
 }
 
@@ -98,6 +100,7 @@ func (s *Session) runShell(ctx context.Context, line string,
 				"stty rows %d cols %d 2>/dev/null; %s", rows, columns, line)}
 			request.TTY = true
 			request.Stdin = held.Stdin()
+			request.Resizes = held.Resizes()
 		}
 	}
 	status, err := s.Exec(ctx, request)

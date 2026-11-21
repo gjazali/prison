@@ -215,12 +215,14 @@ func execInBox(ctx context.Context, current *session.Session, line string,
 		return err
 	}
 	stdin := io.Reader(os.Stdin)
+	var resizes <-chan struct{}
 	if tty {
 		if held, err := console.Open(); err != nil {
 			ui.Warn("cannot set up the terminal: %v", err)
 		} else {
 			defer held.Close()
 			stdin = held.Stdin()
+			resizes = held.Resizes()
 		}
 	}
 	rows, columns := ui.TerminalSize()
@@ -234,6 +236,7 @@ func execInBox(ctx context.Context, current *session.Session, line string,
 		Stdin:       stdin,
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,
+		Resizes:     resizes,
 	})
 	if err != nil {
 		return err

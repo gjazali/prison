@@ -160,7 +160,7 @@ func (session *hostExecSession) receive(ctx context.Context, box string,
 }
 
 func terminalSize(stdin io.Reader) (int, int) {
-	// The console pty keeps the size from when it opened.
+	// Prefer stdout because stdin may be a lent pty or non-terminal stream.
 	candidates := []*os.File{os.Stdout}
 	if file, isFile := stdin.(*os.File); isFile {
 		candidates = append(candidates, file)

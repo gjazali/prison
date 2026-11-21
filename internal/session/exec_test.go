@@ -61,6 +61,9 @@ func TestRunShellWithoutTTY(t *testing.T) {
 	if spec.Stdin != nil {
 		t.Errorf("Stdin = %v, want nil", spec.Stdin)
 	}
+	if spec.Resizes != nil {
+		t.Errorf("Resizes = %v, want nil", spec.Resizes)
+	}
 	if len(spec.Command) != 3 || spec.Command[2] != "mise use -g node@lts" {
 		t.Errorf("Command = %q, want bash -lc mise use -g node@lts", spec.Command)
 	}
@@ -88,6 +91,9 @@ func TestRunShellWithTTY(t *testing.T) {
 	}
 	if spec.Stdin == nil {
 		t.Fatal("Stdin = nil, want lent pty")
+	}
+	if spec.Resizes == nil {
+		t.Fatal("Resizes = nil, want resize channel")
 	}
 	if len(spec.Command) != 3 ||
 		!strings.HasPrefix(spec.Command[2], "stty rows ") ||

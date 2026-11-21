@@ -15,3 +15,7 @@ func OpenTerminalPair() (*os.File, *os.File, error) {
 func SetSize(descriptor, rows, columns int) error {
 	return errors.New("cannot set the pty size on " + runtime.GOOS)
 }
+
+func watchWindowResize(chan<- os.Signal) {}
+
+func SignalResize(*os.Process) {}
