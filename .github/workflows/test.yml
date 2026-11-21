@@ -110,3 +110,6 @@ jobs:
       - run: make build
       - run: bin/prison doctor || true
       - run: make test-isolator
+      - name: Run end-to-end tests
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: make test-e2e

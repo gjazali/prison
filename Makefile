@@ -9,7 +9,7 @@ endif
 LDFLAGS := -s -w -X prison/internal/cli.Version=$(VERSION)
 
 .PHONY: all build guest host kernel test test-guest test-broker test-isolator \
-	lint install clean
+	test-e2e lint install clean
 
 all: build
 
@@ -49,6 +49,11 @@ test-broker:
 test-isolator: build
 	go test -tags integration ./internal/isolator/firecracker/... \
 		./internal/hostfw/... -run Integration -v
+
+# test-e2e runs the compiled `prison` CLI end-to-end against real micro-VMs,
+# broker, host firewall, and ssh-agent (macOS and Linux).
+test-e2e: build
+	go test -tags e2e -timeout 15m ./e2e/... -v
 
 lint:
 	@test -z "$$(gofmt -l .)" || (gofmt -l .; exit 1)

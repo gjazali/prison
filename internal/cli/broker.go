@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
@@ -369,14 +371,40 @@ func runBrokerServe() error {
 	if err != nil {
 		return err
 	}
+	tlsConfig, err := brokerUpstreamTLSConfig()
+	if err != nil {
+		return err
+	}
 	err = broker.Run(ctx, broker.Options{
-		Root:          environment.Root,
-		Version:       Version,
-		BrokerPort:    environment.Overrides.BrokerPort,
-		SSHAuthSocket: os.Getenv("SSH_AUTH_SOCK"),
+		Root:              environment.Root,
+		Version:           Version,
+		BrokerPort:        environment.Overrides.BrokerPort,
+		SSHAuthSocket:     os.Getenv("SSH_AUTH_SOCK"),
+		UpstreamTLSConfig: tlsConfig,
 	})
 	if err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	return nil
+}
+
+// brokerUpstreamTLSConfig honors SSL_CERT_FILE on platforms where Go's
+// crypto/x509 does not read it from the environment (such as macOS).
+func brokerUpstreamTLSConfig() (*tls.Config, error) {
+	path := strings.TrimSpace(os.Getenv("SSL_CERT_FILE"))
+	if path == "" {
+		return nil, nil
+	}
+	pemData, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read SSL_CERT_FILE %s: %w", path, err)
+	}
+	pool, err := x509.SystemCertPool()
+	if err != nil || pool == nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(pemData) {
+		return nil, fmt.Errorf("SSL_CERT_FILE %s has no valid certificates", path)
+	}
+	return &tls.Config{RootCAs: pool}, nil
 }

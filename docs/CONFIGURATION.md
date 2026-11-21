@@ -36,7 +36,7 @@ inmates = ["claude-code"] # The inmates that are installed in the Prison box
 cpus = 4             # The number of CPUs to use
 memory = "8G"        # The amount of memory to use
 ports = [8888, 4321] # A list of ports to publish
-sudo = false         # Whether or not root access inside the box will be allowed; you'll need this if you want to use `apt install` inside the box
+sudo = true          # Whether or not root access inside the box will be allowed (default: false); this is required in order to use `sudo` in `[setup] commands` or `apt install` inside the box
 shadow = [".venv"]   # Files and folder that will be kept out of the Prison box's worktree
 
 [setup]
@@ -121,13 +121,12 @@ This is a number from 1 to 32, with the default being 4.
 This is a number with no leading zero followed by `M` or `G`, with the default
 being `8G`.
 
-#### `sudo`
+##### `sudo`
 
 This determines whether or not `sudo` privilege is granted inside the box, with
 the default being `false`.
 
-This does not need to be `true` for things under `[setup] commands` to run with
-`sudo`.
+This must be `true` for commands under `[setup] commands` to run with `sudo`.
 
 ##### `ports`
 

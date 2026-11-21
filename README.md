@@ -79,7 +79,7 @@ to control Prison's behavior for that project specifically:
 inmates = ["claude-code"] # The inmates that are installed in the Prison box
 
 [box]
-sudo = false         # Whether or not root access inside the box will be allowed; you'll need this if you want to use `apt install` inside the box
+sudo = true          # Whether or not root access inside the box will be allowed (default: false); this is required in order to use `sudo` in `[setup] commands` or `apt install` inside the box
 ports = [8888, 4321] # A list of ports to publish
 shadow = [".venv"]   # Files and folder that will be kept out of the Prison box's worktree
 
