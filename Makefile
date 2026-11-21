@@ -3,7 +3,9 @@ HOST_GOARCH := $(subst aarch64,arm64,$(subst x86_64,amd64,$(HOST_MACHINE)))
 GUEST_GOOS ?= linux
 GUEST_GOARCH ?= $(HOST_GOARCH)
 KERNEL := images/kernel/linux-$(GUEST_GOARCH).gz
-VERSION ?= $(shell date +%Y%m%d)-dev
+ifndef VERSION
+VERSION := $(shell date +%Y%m%d-%H%M%S)-dev
+endif
 LDFLAGS := -s -w -X prison/internal/cli.Version=$(VERSION)
 
 .PHONY: all build guest host kernel test test-guest test-broker test-isolator \
