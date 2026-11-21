@@ -156,6 +156,7 @@ type fakeRecreateIsolator struct {
 	isolator.Isolator
 	exists    bool
 	running   bool
+	started   int
 	stopped   int
 	deleted   int
 	created   int
@@ -164,6 +165,12 @@ type fakeRecreateIsolator struct {
 
 func (f *fakeRecreateIsolator) Box(ctx context.Context, name string) (isolator.BoxInfo, error) {
 	return isolator.BoxInfo{Name: name, Exists: f.exists, Running: f.running}, nil
+}
+
+func (f *fakeRecreateIsolator) Start(ctx context.Context, name string) error {
+	f.started++
+	f.running = true
+	return nil
 }
 
 func (f *fakeRecreateIsolator) Stop(ctx context.Context, name string) error {
@@ -274,4 +281,119 @@ func TestMiseDirectoryIsPersistedAndMounted(t *testing.T) {
 	if !mounted {
 		t.Fatalf("Mounts() = %+v, missing writable mount for %s", s.Mounts(nil), MiseGuestDir)
 	}
+}
+
+func TestCreateOrStartBoxDriftPromptsInteractively(t *testing.T) {
+	newSession := func(t *testing.T, running bool) (*Session, *state.ProjectRecord, *fakeRecreateIsolator) {
+		t.Helper()
+		root, err := state.OpenRoot(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		projectDir := t.TempDir()
+		project, err := root.Project(projectDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		record := &state.ProjectRecord{
+			Path:           projectDir,
+			SetupSignature: "old-sig",
+			Box:            &state.BoxShape{Image: "prison/box:old", Network: "prison"},
+		}
+		if err := project.SaveRecord(record); err != nil {
+			t.Fatal(err)
+		}
+		fake := &fakeRecreateIsolator{exists: true, running: running}
+		s := &Session{
+			Environment: &Environment{
+				Root:      root,
+				Isolator:  fake,
+				Overrides: &config.Overrides{Network: "prison", BrokerPort: 8787},
+			},
+			Directory: projectDir,
+			Project:   project,
+			Record:    record,
+			BoxName:   "proj-1234567890ab.prison",
+		}
+		return s, record, fake
+	}
+
+	previousTerminal := stdinIsTerminal
+	previousConfirm := confirmPrompt
+	t.Cleanup(func() {
+		stdinIsTerminal = previousTerminal
+		confirmPrompt = previousConfirm
+	})
+
+	t.Run("interactive confirm recreates without starting old box", func(t *testing.T) {
+		stdinIsTerminal = func() bool { return true }
+		prompted := 0
+		confirmPrompt = func(question string) bool {
+			prompted++
+			return true
+		}
+		s, record, fake := newSession(t, false)
+		created, err := s.createOrStartBox(
+			context.Background(), record, "prison/box:new", nil, nil, false, false)
+		if err != nil || !created {
+			t.Fatalf("createOrStartBox = %v, %v, want true, nil", created, err)
+		}
+		if prompted != 1 {
+			t.Errorf("prompted = %d, want 1", prompted)
+		}
+		if fake.started != 0 || fake.deleted != 1 || fake.created != 1 {
+			t.Errorf("calls: started=%d deleted=%d created=%d, want 0, 1, 1",
+				fake.started, fake.deleted, fake.created)
+		}
+		if record.Box == nil || record.Box.Image != "prison/box:new" {
+			t.Errorf("record.Box = %+v, want prison/box:new", record.Box)
+		}
+	})
+
+	t.Run("interactive decline keeps existing box and starts it", func(t *testing.T) {
+		stdinIsTerminal = func() bool { return true }
+		prompted := 0
+		confirmPrompt = func(question string) bool {
+			prompted++
+			return false
+		}
+		s, record, fake := newSession(t, false)
+		created, err := s.createOrStartBox(
+			context.Background(), record, "prison/box:new", nil, nil, false, false)
+		if err != nil || created {
+			t.Fatalf("createOrStartBox = %v, %v, want false, nil", created, err)
+		}
+		if prompted != 1 {
+			t.Errorf("prompted = %d, want 1", prompted)
+		}
+		if fake.started != 1 || fake.deleted != 0 || fake.created != 0 {
+			t.Errorf("calls: started=%d deleted=%d created=%d, want 1, 0, 0",
+				fake.started, fake.deleted, fake.created)
+		}
+		if record.Box == nil || record.Box.Image != "prison/box:old" {
+			t.Errorf("record.Box = %+v, want prison/box:old", record.Box)
+		}
+	})
+
+	t.Run("non-interactive skips prompt and keeps existing box", func(t *testing.T) {
+		stdinIsTerminal = func() bool { return false }
+		prompted := 0
+		confirmPrompt = func(question string) bool {
+			prompted++
+			return true
+		}
+		s, record, fake := newSession(t, true)
+		created, err := s.createOrStartBox(
+			context.Background(), record, "prison/box:new", nil, nil, false, false)
+		if err != nil || created {
+			t.Fatalf("createOrStartBox = %v, %v, want false, nil", created, err)
+		}
+		if prompted != 0 {
+			t.Errorf("prompted = %d, want 0", prompted)
+		}
+		if fake.deleted != 0 || fake.created != 0 {
+			t.Errorf("calls: deleted=%d created=%d, want 0, 0",
+				fake.deleted, fake.created)
+		}
+	})
 }

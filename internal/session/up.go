@@ -24,6 +24,11 @@ const (
 	listenerReadyInterval = 500 * time.Millisecond
 )
 
+var (
+	stdinIsTerminal = ui.StdinIsTerminal
+	confirmPrompt   = ui.Confirm
+)
+
 type UpOptions struct {
 	Recreate bool
 }
@@ -479,8 +484,9 @@ func (s *Session) reportRequiredSecrets() {
 	}
 }
 
-// createOrStartBox leaves an existing box alone unless `recreate` is set.
-// `NET_ADMIN` lets the guest agent set its firewall rules.
+// createOrStartBox leaves an existing box alone unless `recreate` is set or
+// the user confirms recreation after shape drift. `NET_ADMIN` lets the guest
+// agent set its firewall rules.
 func (s *Session) createOrStartBox(
 	ctx context.Context, record *state.ProjectRecord, imageTag string,
 	ports []isolator.PortMapping, shadowPaths []string, sudo bool,
@@ -492,14 +498,28 @@ func (s *Session) createOrStartBox(
 	}
 	shape := s.Shape(imageTag, ports, shadowPaths)
 	if box.Exists && !recreate {
+		drifts := DescribeShapeDrift(record.Box, shape)
+		if len(drifts) > 0 && stdinIsTerminal() {
+			for _, drift := range drifts {
+				ui.Warn("%s", drift)
+			}
+			if confirmPrompt(fmt.Sprintf("recreate %s now?", s.BoxName)) {
+				recreate = true
+			} else {
+				ui.Progress("keeping the existing box. Run `prison up --recreate` later to apply")
+			}
+		} else {
+			for _, drift := range drifts {
+				ui.Warn("%s. Run `prison up --recreate`", drift)
+			}
+		}
+	}
+	if box.Exists && !recreate {
 		if !box.Running {
 			ui.Progress("starting %s", s.BoxName)
 			if err := s.Isolator.Start(ctx, s.BoxName); err != nil {
 				return false, err
 			}
-		}
-		for _, drift := range DescribeShapeDrift(record.Box, shape) {
-			ui.Warn("%s. Run `prison up --recreate`", drift)
 		}
 		return false, nil
 	}
