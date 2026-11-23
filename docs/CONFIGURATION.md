@@ -110,6 +110,18 @@ To apply the update to all Inmates defined in the project:
 prison inmate update --all
 </pre>
 
+To re-sync host configuration files for the project's Inmates into the box:
+
+<pre>
+prison inmate sync <b><i>inmate_name</i></b>
+</pre>
+
+To sync all Inmates defined in the project:
+
+<pre>
+prison inmate sync --all
+</pre>
+
 #### `[box]`
 
 ##### `cpus`

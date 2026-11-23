@@ -591,6 +591,48 @@ func (s *Session) EnsureVaultUnlockedForInmate(ctx context.Context,
 	return client.Unlock(ctx, passphrase)
 }
 
+type InmateSyncReport struct {
+	Inmate *plugin.Inmate
+	Result plugin.HostSyncResult
+	Error  error
+}
+
+// SyncInmatesFromHost mirrors each inmate's host configuration into its
+// persisted home directory for this project.
+func (s *Session) SyncInmatesFromHost(ctx context.Context,
+	client *control.Client, inmates []*plugin.Inmate) []InmateSyncReport {
+	placeholderTail := s.PlaceholderTail()
+	authProfiles := s.inmateAuthProfiles()
+	active := s.ActiveInmateCredentials(ctx, client)
+	reports := make([]InmateSyncReport, 0, len(inmates))
+	for _, inmate := range inmates {
+		report := InmateSyncReport{Inmate: inmate}
+		if inmate == nil || (len(inmate.Host.Copy) == 0 && len(inmate.Host.JSON) == 0) {
+			reports = append(reports, report)
+			continue
+		}
+		inBox := authProfiles[inmate.Name] == vault.InBoxInmateProfile
+		activeVariable := ""
+		if !inBox {
+			if cred := active[inmate.Name]; cred != nil {
+				activeVariable = cred.Variable
+			}
+		}
+		result, err := plugin.MirrorHostOperations(inmate, s.HomeDir,
+			s.PersistedHome(inmate), plugin.Placeholders{
+				PlaceholderTail:  placeholderTail,
+				Inmate:           inmate.Name,
+				ProjectID:        s.Project.ID,
+				ActiveCredential: activeVariable,
+				InBoxLogin:       inBox,
+			})
+		report.Result = result
+		report.Error = err
+		reports = append(reports, report)
+	}
+	return reports
+}
+
 func (s *Session) SyncInmateHost(ctx context.Context,
 	client *control.Client, inmate *plugin.Inmate) {
 	if inmate == nil || (len(inmate.Host.Copy) == 0 && len(inmate.Host.JSON) == 0) {

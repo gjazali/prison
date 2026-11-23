@@ -28,34 +28,64 @@ func (p Placeholders) replacer() *strings.Replacer {
 	)
 }
 
+type HostSyncResult struct {
+	Carried []string
+	Removed []string
+	Notes   []string
+}
+
 func RunHostOperations(
 	inmate *Inmate, homeDir string, persistedHome string,
 	placeholders Placeholders,
 ) (carried []string, notes []string, err error) {
+	result, err := runHostOperations(inmate, homeDir, persistedHome, placeholders, false)
+	return result.Carried, result.Notes, err
+}
+
+// MirrorHostOperations runs the inmate's [host] operations and mirrors
+// [host].copy entries and [[host.json]] sources by removing entries in
+// persistedHome that no longer exist on the host.
+func MirrorHostOperations(
+	inmate *Inmate, homeDir string, persistedHome string,
+	placeholders Placeholders,
+) (HostSyncResult, error) {
+	return runHostOperations(inmate, homeDir, persistedHome, placeholders, true)
+}
+
+func runHostOperations(
+	inmate *Inmate, homeDir string, persistedHome string,
+	placeholders Placeholders, mirror bool,
+) (HostSyncResult, error) {
+	var result HostSyncResult
 	host := inmate.Host
 	root, err := resolveUnderHome(homeDir, host.Root)
 	if err != nil {
-		return nil, nil, err
+		return result, err
 	}
 	if err := os.MkdirAll(persistedHome, 0o700); err != nil {
-		return nil, nil, fmt.Errorf("cannot create %s: %w", persistedHome, err)
+		return result, fmt.Errorf("cannot create %s: %w", persistedHome, err)
 	}
 	// The box can write the persisted home.
 	destination, err := os.OpenRoot(persistedHome)
 	if err != nil {
-		return nil, nil, fmt.Errorf("cannot open %s: %w", persistedHome, err)
+		return result, fmt.Errorf("cannot open %s: %w", persistedHome, err)
 	}
 	defer destination.Close()
 	for _, entry := range host.Copy {
-		copied, note, err := copyHostEntry(root, destination, entry)
+		copied, removed, note, err := copyHostEntry(root, destination, entry, mirror)
 		if err != nil {
-			return carried, notes, err
+			return result, err
 		}
 		if note != "" {
-			notes = append(notes, note)
+			result.Notes = append(result.Notes, note)
 		}
 		if copied {
-			carried = append(carried, entry)
+			result.Carried = append(result.Carried, entry)
+		}
+		for _, item := range removed {
+			if !contains(result.Removed, item) {
+				result.Removed = append(result.Removed, item)
+			}
 		}
 	}
 	for _, operation := range host.JSON {
@@ -66,17 +96,23 @@ func RunHostOperations(
 			(placeholders.InBoxLogin || !contains(operation.WhenCredential, placeholders.ActiveCredential)) {
 			continue
 		}
-		written, operationNotes, err := runJSONOperation(
-			root, destination, operation, placeholders)
-		notes = append(notes, operationNotes...)
+		written, removed, operationNotes, err := runJSONOperation(
+			root, destination, operation, placeholders, mirror)
+		result.Notes = append(result.Notes, operationNotes...)
 		if err != nil {
-			return carried, notes, err
+			return result, err
 		}
-		if written && !contains(carried, operation.To) {
-			carried = append(carried, operation.To)
+		if written {
+			if !contains(result.Carried, operation.To) {
+				result.Carried = append(result.Carried, operation.To)
+			}
+			result.Removed = removeString(result.Removed, operation.To)
+		}
+		if removed && !contains(result.Removed, operation.To) {
+			result.Removed = append(result.Removed, operation.To)
 		}
 	}
-	return carried, notes, nil
+	return result, nil
 }
 
 func matchesAuthMode(whenAuth string, inBox bool) bool {
@@ -101,39 +137,70 @@ func contains(values []string, wanted string) bool {
 	return false
 }
 
+func removeString(values []string, unwanted string) []string {
+	out := values[:0]
+	for _, value := range values {
+		if value != unwanted {
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
 func copyHostEntry(
-	root string, destination *os.Root, entry string,
-) (bool, string, error) {
+	root string, destination *os.Root, entry string, mirror bool,
+) (bool, []string, string, error) {
 	wantsDirectory := strings.HasSuffix(entry, "/")
 	relative := strings.TrimSuffix(entry, "/")
 	source, err := resolveInside(root, relative)
 	if err != nil {
-		return false, "", err
+		return false, nil, "", err
 	}
 	name := filepath.FromSlash(relative)
 	info, err := os.Stat(source)
 	if errors.Is(err, fs.ErrNotExist) {
-		return false, fmt.Sprintf(
+		if mirror {
+			removed, removeErr := removeInsideIfPresent(destination, name)
+			if removeErr != nil {
+				return false, nil, "", removeErr
+			}
+			if removed {
+				return false, []string{entry}, "", nil
+			}
+		}
+		return false, nil, fmt.Sprintf(
 			"skipped %s because it is not on the host", entry), nil
 	}
 	if err != nil {
-		return false, "", fmt.Errorf("cannot read %s: %w", source, err)
+		return false, nil, "", fmt.Errorf("cannot read %s: %w", source, err)
 	}
 	if info.IsDir() != wantsDirectory {
-		return false, fmt.Sprintf(
+		return false, nil, fmt.Sprintf(
 			"skipped %s because its type does not match the host", entry), nil
 	}
 	if wantsDirectory {
-		if err := mergeDirectory(source, destination, name); err != nil {
-			return false, "", err
+		if mirror {
+			pruned, err := mirrorDirectory(source, destination, name)
+			if err != nil {
+				return false, nil, "", err
+			}
+			return true, pruned, "", nil
 		}
-		return true, "", nil
+		if err := mergeDirectory(source, destination, name); err != nil {
+			return false, nil, "", err
+		}
+		return true, nil, "", nil
+	}
+	if mirror {
+		if err := removeIfDirectory(destination, name); err != nil {
+			return false, nil, "", err
+		}
 	}
 	err = copyHostFile(source, destination, name, info.Mode().Perm())
 	if err != nil {
-		return false, "", err
+		return false, nil, "", err
 	}
-	return true, "", nil
+	return true, nil, "", nil
 }
 
 func mergeDirectory(source string, destination *os.Root, name string) error {
@@ -166,6 +233,170 @@ func mergeDirectory(source string, destination *os.Root, name string) error {
 	})
 }
 
+func mirrorDirectory(source string, destination *os.Root, name string) ([]string, error) {
+	cleanRoot := filepath.Clean(name)
+	wantedDirs := map[string]bool{cleanRoot: true}
+	wantedFiles := map[string]bool{}
+	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.Name() == ".DS_Store" {
+			return nil
+		}
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Clean(filepath.Join(name, relative))
+		if entry.IsDir() {
+			if err := removeIfNonDirectory(destination, target); err != nil {
+				return err
+			}
+			if err := destination.MkdirAll(target, 0o700); err != nil {
+				return fmt.Errorf("cannot create %s: %w", target, err)
+			}
+			wantedDirs[target] = true
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		if err := removeIfDirectory(destination, target); err != nil {
+			return err
+		}
+		if err := copyHostFile(path, destination, target, info.Mode().Perm()); err != nil {
+			return err
+		}
+		wantedFiles[target] = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pruneDirectory(destination, cleanRoot, wantedDirs, wantedFiles)
+}
+
+func pruneDirectory(
+	destination *os.Root, dir string,
+	wantedDirs, wantedFiles map[string]bool,
+) ([]string, error) {
+	handle, err := destination.Open(dir)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read %s: %w", dir, err)
+	}
+	entries, err := handle.ReadDir(-1)
+	handle.Close()
+	if err != nil {
+		return nil, fmt.Errorf("cannot read %s: %w", dir, err)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+	var pruned []string
+	for _, entry := range entries {
+		child := filepath.Clean(filepath.Join(dir, entry.Name()))
+		info, err := destination.Lstat(child)
+		if err != nil {
+			return pruned, fmt.Errorf("cannot inspect %s: %w", child, err)
+		}
+		if wantedDirs[child] && info.IsDir() {
+			nested, err := pruneDirectory(destination, child, wantedDirs, wantedFiles)
+			pruned = append(pruned, nested...)
+			if err != nil {
+				return pruned, err
+			}
+			continue
+		}
+		if wantedFiles[child] && info.Mode().IsRegular() {
+			continue
+		}
+		removed, err := removeInsideIfPresent(destination, child)
+		if err != nil {
+			return pruned, err
+		}
+		if removed {
+			label := filepath.ToSlash(child)
+			if info.IsDir() {
+				label += "/"
+			}
+			pruned = append(pruned, label)
+		}
+	}
+	return pruned, nil
+}
+
+func removeIfDirectory(destination *os.Root, name string) error {
+	info, err := destination.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("cannot inspect %s: %w", name, err)
+	}
+	if info.IsDir() {
+		if err := destination.RemoveAll(name); err != nil {
+			return fmt.Errorf("cannot remove %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+func removeIfNonDirectory(destination *os.Root, name string) error {
+	info, err := destination.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("cannot inspect %s: %w", name, err)
+	}
+	if info.IsDir() {
+		return nil
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		if _, statErr := destination.Stat(name); statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+			return fmt.Errorf("cannot replace %s: %w", name, statErr)
+		}
+	}
+	if err := destination.Remove(name); err != nil {
+		return fmt.Errorf("cannot remove %s: %w", name, err)
+	}
+	return nil
+}
+
+func removeInsideIfPresent(destination *os.Root, name string) (bool, error) {
+	info, err := destination.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("cannot inspect %s: %w", name, err)
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		if _, statErr := destination.Stat(name); statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+			return false, fmt.Errorf("cannot remove %s: %w", name, statErr)
+		}
+		if err := destination.Remove(name); err != nil {
+			return false, fmt.Errorf("cannot remove %s: %w", name, err)
+		}
+		return true, nil
+	}
+	if info.IsDir() {
+		if err := destination.RemoveAll(name); err != nil {
+			return false, fmt.Errorf("cannot remove %s: %w", name, err)
+		}
+		return true, nil
+	}
+	if err := destination.Remove(name); err != nil {
+		return false, fmt.Errorf("cannot remove %s: %w", name, err)
+	}
+	return true, nil
+}
+
 func copyHostFile(
 	source string, destination *os.Root, name string, mode fs.FileMode,
 ) error {
@@ -178,8 +409,8 @@ func copyHostFile(
 
 func runJSONOperation(
 	root string, destination *os.Root, operation HostJSONOperation,
-	placeholders Placeholders,
-) (bool, []string, error) {
+	placeholders Placeholders, mirror bool,
+) (bool, bool, []string, error) {
 	var notes []string
 	name := filepath.FromSlash(operation.To)
 	read, source := destination.ReadFile, name
@@ -187,20 +418,27 @@ func runJSONOperation(
 		var err error
 		source, err = resolveInside(root, operation.From)
 		if err != nil {
-			return false, notes, err
+			return false, false, notes, err
 		}
 		read = os.ReadFile
 	}
-	document, found, readNote := readJSONObject(read, source)
+	document, found, notExist, readNote := readJSONObject(read, source)
 	if readNote != "" {
 		notes = append(notes, readNote)
 	}
 	if operation.From != "" && !found {
-		return false, notes, nil
+		if mirror && notExist {
+			removed, err := removeInsideIfPresent(destination, name)
+			if err != nil {
+				return false, false, notes, err
+			}
+			return false, removed, notes, nil
+		}
+		return false, false, notes, nil
 	}
 	if !found && len(operation.Set) == 0 && len(operation.Append) == 0 &&
 		len(operation.Keep) == 0 {
-		return false, notes, nil
+		return false, false, notes, nil
 	}
 	if len(operation.Keep) > 0 {
 		var dropped []string
@@ -223,9 +461,9 @@ func runJSONOperation(
 			document, dotted, replacer.Replace(operation.Append[dotted]), operation.To)...)
 	}
 	if err := writeJSONObject(destination, name, document); err != nil {
-		return false, notes, err
+		return false, false, notes, err
 	}
-	return true, notes, nil
+	return true, false, notes, nil
 }
 
 func keepOnly(document map[string]any, keep []string) (map[string]any, []string) {
@@ -306,21 +544,21 @@ func containerFor(
 
 func readJSONObject(
 	read func(string) ([]byte, error), path string,
-) (map[string]any, bool, string) {
+) (map[string]any, bool, bool, string) {
 	data, err := read(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return map[string]any{}, false, ""
+		return map[string]any{}, false, true, ""
 	}
 	if err != nil {
-		return map[string]any{}, false,
+		return map[string]any{}, false, false,
 			fmt.Sprintf("ignored %s because it cannot be read", path)
 	}
 	document := map[string]any{}
 	if err := json.Unmarshal(data, &document); err != nil {
-		return map[string]any{}, false,
+		return map[string]any{}, false, false,
 			fmt.Sprintf("ignored %s because it is not a JSON object", path)
 	}
-	return document, true, ""
+	return document, true, false, ""
 }
 
 func writeJSONObject(
@@ -357,7 +595,7 @@ func HostEnvironment(inmate *Inmate, homeDir string) ([]string, error) {
 			return nil, fmt.Errorf("host.environment.pattern %q is not a regular expression: %w",
 				source.Pattern, err)
 		}
-		document, found, _ := readJSONObject(os.ReadFile, path)
+		document, found, _, _ := readJSONObject(os.ReadFile, path)
 		if !found {
 			continue
 		}

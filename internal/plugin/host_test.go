@@ -471,3 +471,236 @@ func TestRunHostOperationsWhenAuth(t *testing.T) {
 		t.Fatalf("modelProvider survived in-box login: %v", settings)
 	}
 }
+
+func TestMirrorHostOperationsMirrorsEditsAndDeletions(t *testing.T) {
+	home := fakeHome(t, "0f4c1c8e-2b5a-4d3e-9a1f-000000000001")
+	persisted := filepath.Join(t.TempDir(), "homes", "claude")
+	inmate := claudeInmate(t)
+	placeholders := Placeholders{
+		PlaceholderTail: "abcdefghij0123456789",
+		Inmate:          "claude",
+		ProjectID:       "0123456789ab",
+	}
+
+	// Initial sync populates persisted home.
+	if _, err := MirrorHostOperations(inmate, home, persisted, placeholders); err != nil {
+		t.Fatalf("initial MirrorHostOperations: %v", err)
+	}
+	// Box writes extra files inside mirrored dirs.
+	write(t, filepath.Join(persisted, "agents", "box-only.md"), "box\n")
+	write(t, filepath.Join(persisted, "skills", "old-skill", "SKILL.md"), "old\n")
+	// Box also writes unrelated runtime files outside [host].copy that must survive.
+	write(t, filepath.Join(persisted, "history.jsonl"), "keep me\n")
+
+	// Modify host: edit CLAUDE.md, remove agents/x.md, remove entire skills/ dir,
+	// and update settings.json.
+	write(t, filepath.Join(home, ".claude", "CLAUDE.md"), "updated instructions\n")
+	if err := os.Remove(filepath.Join(home, ".claude", "agents", "x.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(home, ".claude", "skills")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(home, ".claude", "settings.json"), `{"model": "sonnet"}`)
+
+	res, err := MirrorHostOperations(inmate, home, persisted, placeholders)
+	if err != nil {
+		t.Fatalf("second MirrorHostOperations: %v", err)
+	}
+
+	gotClaudeMD, err := os.ReadFile(filepath.Join(persisted, "CLAUDE.md"))
+	if err != nil || string(gotClaudeMD) != "updated instructions\n" {
+		t.Fatalf("CLAUDE.md = %q, %v", gotClaudeMD, err)
+	}
+	for _, gone := range []string{"agents/x.md", "agents/box-only.md", "skills"} {
+		if _, err := os.Stat(filepath.Join(persisted, filepath.FromSlash(gone))); !os.IsNotExist(err) {
+			t.Errorf("%s still exists (err=%v), want removed", gone, err)
+		}
+	}
+	// Empty agents/ dir should still exist because it exists on host.
+	if info, err := os.Stat(filepath.Join(persisted, "agents")); err != nil || !info.IsDir() {
+		t.Errorf("agents/ = %v, %v, want empty dir", info, err)
+	}
+	// Unmanaged files in persisted home must remain untouched.
+	if _, err := os.Stat(filepath.Join(persisted, "history.jsonl")); err != nil {
+		t.Errorf("history.jsonl = %v, want preserved", err)
+	}
+	settings := readJSON(t, filepath.Join(persisted, "settings.json"))
+	if settings["model"] != "sonnet" {
+		t.Errorf("settings.model = %v, want sonnet", settings["model"])
+	}
+	if _, present := settings["theme"]; present {
+		t.Errorf("settings.theme survived removal on host")
+	}
+	wantRemoved := []string{"agents/box-only.md", "agents/x.md", "skills/"}
+	if strings.Join(res.Removed, " ") != strings.Join(wantRemoved, " ") {
+		t.Errorf("Removed = %v, want %v", res.Removed, wantRemoved)
+	}
+
+	// Now delete CLAUDE.md and settings.json on the host as well.
+	if err := os.Remove(filepath.Join(home, ".claude", "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(home, ".claude", "settings.json")); err != nil {
+		t.Fatal(err)
+	}
+	res, err = MirrorHostOperations(inmate, home, persisted, placeholders)
+	if err != nil {
+		t.Fatalf("third MirrorHostOperations: %v", err)
+	}
+	for _, gone := range []string{"CLAUDE.md", "settings.json"} {
+		if _, err := os.Stat(filepath.Join(persisted, gone)); !os.IsNotExist(err) {
+			t.Errorf("%s still exists (err=%v), want removed", gone, err)
+		}
+	}
+	wantRemoved2 := []string{"CLAUDE.md", "settings.json"}
+	if strings.Join(res.Removed, " ") != strings.Join(wantRemoved2, " ") {
+		t.Errorf("Removed = %v, want %v", res.Removed, wantRemoved2)
+	}
+}
+
+func TestMirrorHostOperationsJSONFromDeletionWithSubsequentSet(t *testing.T) {
+	home := t.TempDir()
+	persisted := t.TempDir()
+	inmate := &Inmate{Name: "example", Manifest: Manifest{Host: HostTable{
+		Root: "~/.example",
+		JSON: []HostJSONOperation{
+			{
+				From: "settings.json",
+				To:   "settings.json",
+				Keep: []string{"theme"},
+			},
+			{
+				To:       "settings.json",
+				WhenAuth: AuthModeBroker,
+				Set:      map[string]string{"modelProvider": "gemini"},
+			},
+			{
+				To:       "settings.json",
+				WhenAuth: AuthModeInBox,
+				Remove:   []string{"modelProvider"},
+			},
+		},
+	}}}
+
+	write(t, filepath.Join(home, ".example", "settings.json"), `{"theme": "dark"}`)
+	if _, err := MirrorHostOperations(inmate, home, persisted, Placeholders{}); err != nil {
+		t.Fatalf("initial mirror: %v", err)
+	}
+	settings := readJSON(t, filepath.Join(persisted, "settings.json"))
+	if settings["theme"] != "dark" || settings["modelProvider"] != "gemini" {
+		t.Fatalf("initial settings = %v", settings)
+	}
+
+	// Delete host settings.json: broker mode should drop theme but keep modelProvider
+	// and not report settings.json as removed.
+	if err := os.Remove(filepath.Join(home, ".example", "settings.json")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := MirrorHostOperations(inmate, home, persisted, Placeholders{})
+	if err != nil {
+		t.Fatalf("broker mirror after delete: %v", err)
+	}
+	settings = readJSON(t, filepath.Join(persisted, "settings.json"))
+	if _, present := settings["theme"]; present {
+		t.Fatalf("theme survived host deletion: %v", settings)
+	}
+	if settings["modelProvider"] != "gemini" {
+		t.Fatalf("modelProvider = %v, want gemini", settings["modelProvider"])
+	}
+	if contains(res.Removed, "settings.json") {
+		t.Fatalf("Removed = %v, should not include recreated settings.json", res.Removed)
+	}
+
+	// In-box mode with deleted host settings.json removes settings.json completely.
+	res, err = MirrorHostOperations(inmate, home, persisted, Placeholders{InBoxLogin: true})
+	if err != nil {
+		t.Fatalf("in-box mirror after delete: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(persisted, "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("settings.json still exists in in-box mode (err=%v)", err)
+	}
+	if !contains(res.Removed, "settings.json") {
+		t.Fatalf("Removed = %v, want settings.json", res.Removed)
+	}
+}
+
+func TestMirrorHostOperationsKeepsDestinationOnInvalidHostJSON(t *testing.T) {
+	home := t.TempDir()
+	persisted := t.TempDir()
+	inmate := &Inmate{Name: "example", Manifest: Manifest{Host: HostTable{
+		Root: "~/.example",
+		JSON: []HostJSONOperation{{
+			From: "settings.json",
+			To:   "settings.json",
+			Keep: []string{"theme"},
+		}},
+	}}}
+	write(t, filepath.Join(persisted, "settings.json"), "{\"theme\": \"dark\"}\n")
+	write(t, filepath.Join(home, ".example", "settings.json"), `{not valid json`)
+
+	res, err := MirrorHostOperations(inmate, home, persisted, Placeholders{})
+	if err != nil {
+		t.Fatalf("MirrorHostOperations: %v", err)
+	}
+	settings := readJSON(t, filepath.Join(persisted, "settings.json"))
+	if settings["theme"] != "dark" {
+		t.Fatalf("settings = %v, want preserved", settings)
+	}
+	if len(res.Removed) != 0 {
+		t.Fatalf("Removed = %v, want none", res.Removed)
+	}
+}
+
+func TestMirrorHostOperationsRefusesSymlinkEscapeOnRemoval(t *testing.T) {
+	home := t.TempDir() // host has neither CLAUDE.md nor agents/
+	base := t.TempDir()
+	persisted := filepath.Join(base, "homes", "claude")
+	outside := filepath.Join(base, "outside")
+	write(t, outside, "host file\n")
+	if err := os.MkdirAll(persisted, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "..", "outside"),
+		filepath.Join(persisted, "CLAUDE.md")); err != nil {
+		t.Fatal(err)
+	}
+	inmate := &Inmate{Name: "escape", Manifest: Manifest{Host: HostTable{
+		Root: "~/.claude",
+		Copy: []string{"CLAUDE.md"},
+	}}}
+
+	if _, err := MirrorHostOperations(inmate, home, persisted, Placeholders{}); err == nil {
+		t.Fatal("MirrorHostOperations = nil, want error for escaping symlink")
+	}
+	data, err := os.ReadFile(outside)
+	if err != nil || string(data) != "host file\n" {
+		t.Fatalf("outside = %q, %v, want untouched", data, err)
+	}
+}
+
+func TestMirrorHostOperationsReplacesTypeMismatchInDestination(t *testing.T) {
+	home := t.TempDir()
+	persisted := t.TempDir()
+	write(t, filepath.Join(home, ".claude", "CLAUDE.md"), "file now\n")
+	write(t, filepath.Join(home, ".claude", "agents", "sub", "a.md"), "nested\n")
+	// Persisted home has opposite types: CLAUDE.md is a dir, agents/sub is a file.
+	write(t, filepath.Join(persisted, "CLAUDE.md", "nested.txt"), "old dir\n")
+	write(t, filepath.Join(persisted, "agents", "sub"), "old file\n")
+
+	inmate := &Inmate{Name: "claude", Manifest: Manifest{Host: HostTable{
+		Root: "~/.claude",
+		Copy: []string{"CLAUDE.md", "agents/"},
+	}}}
+	if _, err := MirrorHostOperations(inmate, home, persisted, Placeholders{}); err != nil {
+		t.Fatalf("MirrorHostOperations: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(persisted, "CLAUDE.md"))
+	if err != nil || string(data) != "file now\n" {
+		t.Fatalf("CLAUDE.md = %q, %v", data, err)
+	}
+	nested, err := os.ReadFile(filepath.Join(persisted, "agents", "sub", "a.md"))
+	if err != nil || string(nested) != "nested\n" {
+		t.Fatalf("agents/sub/a.md = %q, %v", nested, err)
+	}
+}

@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"prison/internal/broker/control"
 	"prison/internal/plugin"
 	"prison/internal/session"
 	"prison/internal/state"
@@ -32,6 +34,7 @@ func addInmateCommands(root *cobra.Command) {
 		newInmateShowCommand(),
 		newInmateInstallCommand(),
 		newInmateUpdateCommand(),
+		newInmateSyncCommand(),
 		newInmateRemoveCommand(),
 		newInmateTrustCommand(),
 		newInmateAuthCommand(),
@@ -107,6 +110,30 @@ func newInmateUpdateCommand() *cobra.Command {
 	addInmateYesFlag(command, &assumeYes)
 	command.Flags().BoolVar(&updateAll, "all", false,
 		"update every inmate enabled in this project")
+	return command
+}
+
+func newInmateSyncCommand() *cobra.Command {
+	var syncAll bool
+	command := &cobra.Command{
+		Use:   "sync [<name>]",
+		Short: "sync host configuration for inmates into this project's box",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(command *cobra.Command, arguments []string) error {
+			if syncAll && len(arguments) > 0 {
+				return errors.New("cannot pass an inmate name with `--all`")
+			}
+			if !syncAll && len(arguments) != 1 {
+				return errors.New("pass an inmate name or `--all`")
+			}
+			if syncAll {
+				return runInmateSync(command, "")
+			}
+			return runInmateSync(command, arguments[0])
+		},
+	}
+	command.Flags().BoolVar(&syncAll, "all", false,
+		"sync every inmate enabled in this project")
 	return command
 }
 
@@ -336,6 +363,79 @@ func suggestRecreateIfNeeded(
 	if box, err := current.Isolator.Box(ctx, current.BoxName); err == nil && box.Exists {
 		ui.Progress("run `prison up --recreate` to apply the updated image")
 	}
+}
+
+func runInmateSync(command *cobra.Command, name string) error {
+	environment, err := loadEnvironment()
+	if err != nil {
+		return err
+	}
+	current, err := environment.OpenCurrent()
+	if err != nil {
+		return err
+	}
+	current.WarnAboutUntrustedConfiguration()
+	out := command.OutOrStdout()
+
+	var targets []*plugin.Inmate
+	if name == "" {
+		if len(current.Inmates) == 0 {
+			fmt.Fprintln(out, "no inmates enabled in this project")
+			return nil
+		}
+		targets = current.Inmates
+	} else {
+		inmate, enabled := current.InmateByName(name)
+		if !enabled {
+			if known, lookupErr := environment.Registry.Get(name); lookupErr == nil {
+				return fmt.Errorf("%s is not enabled in this project. Add it to "+
+					"`inmates` under [prison] in %s and run `prison trust`, or add "+
+					"it to %s",
+					known.Name, session.ProjectConfigFileName,
+					current.Root.ConfigFile())
+			} else {
+				return fmt.Errorf("%w. Run `prison inmate list`", lookupErr)
+			}
+		}
+		targets = []*plugin.Inmate{inmate}
+	}
+
+	ctx, cancel := commandContext()
+	defer cancel()
+	var client *control.Client
+	if candidate := control.NewClient(current.Root.BrokerSocket()); candidate.Alive(ctx) {
+		client = candidate
+	}
+
+	reports := current.SyncInmatesFromHost(ctx, client, targets)
+	var errs []error
+	for _, report := range reports {
+		if report.Error != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", report.Inmate.Name, report.Error))
+			continue
+		}
+		for _, note := range report.Result.Notes {
+			ui.Warn("%s: %s", report.Inmate.Name, note)
+		}
+		switch {
+		case len(report.Result.Carried) > 0 && len(report.Result.Removed) > 0:
+			fmt.Fprintf(out, "%s: synced %s; removed %s\n",
+				report.Inmate.Name,
+				strings.Join(report.Result.Carried, ", "),
+				strings.Join(report.Result.Removed, ", "))
+		case len(report.Result.Carried) > 0:
+			fmt.Fprintf(out, "%s: synced %s\n",
+				report.Inmate.Name,
+				strings.Join(report.Result.Carried, ", "))
+		case len(report.Result.Removed) > 0:
+			fmt.Fprintf(out, "%s: removed %s\n",
+				report.Inmate.Name,
+				strings.Join(report.Result.Removed, ", "))
+		default:
+			fmt.Fprintf(out, "%s: nothing to sync\n", report.Inmate.Name)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func runInmateRemove(command *cobra.Command, name string) error {
