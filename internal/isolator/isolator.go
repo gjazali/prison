@@ -101,6 +101,16 @@ type HostRoute interface {
 	Install(ctx context.Context, gateway string) error
 }
 
+// NetworkAnchor keeps the default vmnet bridge alive on macOS so that
+// BuildKit builds do not collide with running boxes on a host-only network.
+type NetworkAnchor interface {
+	Name() string
+	Network() string
+	Status(ctx context.Context) (BoxInfo, error)
+	Ensure(ctx context.Context) error
+	Remove(ctx context.Context) error
+}
+
 // Base is the part of `Isolator` that every OS shares. `Create` and `Start`
 // return only when the box accepts `Exec`. `Exec` returns an error only when
 // the command cannot run. `ReleaseBuilder` frees the resources that the

@@ -11,7 +11,11 @@ import (
 )
 
 func platformHostCommands() []*cobra.Command {
-	return []*cobra.Command{newHostDNSCommand(), newHostRouteCommand()}
+	return []*cobra.Command{
+		newHostDNSCommand(),
+		newHostRouteCommand(),
+		newHostAnchorCommand(),
+	}
 }
 
 func printHostnameSummary(current *session.Session) {
@@ -124,5 +128,74 @@ func runHostRoute(command *cobra.Command) error {
 	}
 	ui.Progress("done")
 	ui.Warn("this route can be lost after a restart")
+	return nil
+}
+
+func newHostAnchorCommand() *cobra.Command {
+	var removeAnchor bool
+	command := &cobra.Command{
+		Use:   "anchor",
+		Short: "keep the default vmnet bridge alive for image builds",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, arguments []string) error {
+			return runHostAnchor(removeAnchor)
+		},
+	}
+	command.Flags().BoolVar(&removeAnchor, "remove", false,
+		"stop and remove the anchor container")
+	return command
+}
+
+func runHostAnchor(removeAnchor bool) error {
+	ctx, cancel := commandContext()
+	defer cancel()
+	environment, err := loadEnvironment()
+	if err != nil {
+		return err
+	}
+	if err := environment.Isolator.Require(ctx); err != nil {
+		return err
+	}
+	anchor := environment.Isolator.Anchor()
+	info, err := anchor.Status(ctx)
+	if err != nil {
+		return err
+	}
+	if removeAnchor {
+		if !info.Exists {
+			ui.Progress("%s is not present", anchor.Name())
+			return nil
+		}
+		ui.Progress("removing %s", anchor.Name())
+		if err := anchor.Remove(ctx); err != nil {
+			return err
+		}
+		ui.Progress("done")
+		return nil
+	}
+	if info.Exists && info.Running && info.Network == anchor.Network() {
+		ui.Progress("%s is running on %s", anchor.Name(), anchor.Network())
+		return nil
+	}
+	blocking, err := environment.BlockingBoxesForAnchor(ctx)
+	if err != nil {
+		return err
+	}
+	if len(blocking) > 0 {
+		names := make([]string, 0, len(blocking))
+		for _, box := range blocking {
+			names = append(names, box.Name)
+		}
+		listed := strings.Join(names, ", ")
+		ui.Warn("%s is active on %s; starting %s while boxes run can break macOS vmnet",
+			listed, environment.Overrides.Network, anchor.Name())
+		if !ui.Confirm(fmt.Sprintf("stop %s briefly to start %s?", listed, anchor.Name())) {
+			return ui.Exit(1, "canceled")
+		}
+	}
+	if _, err := environment.StartAnchorWithQuiesce(ctx, blocking, ""); err != nil {
+		return err
+	}
+	ui.Progress("done")
 	return nil
 }

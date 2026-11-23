@@ -10,6 +10,12 @@ import (
 
 func (s *Session) ensureHostDNS(ctx context.Context) {}
 
-func (s *Session) ensureHostRoute(
+func (e *Environment) ensureHostRoute(
 	ctx context.Context, network isolator.NetworkInfo) {
+}
+
+func (s *Session) ensureHostAnchor(
+	ctx context.Context, recreateCurrent bool,
+) func() {
+	return nil
 }

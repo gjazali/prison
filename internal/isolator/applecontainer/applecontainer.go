@@ -64,8 +64,13 @@ func (driver *Driver) Route() isolator.HostRoute {
 	return routeHelper{driver: driver}
 }
 
+func (driver *Driver) Anchor() isolator.NetworkAnchor {
+	return anchorHelper{driver: driver}
+}
+
 var (
-	_ isolator.Isolator  = (*Driver)(nil)
-	_ isolator.DNSDomain = dnsHelper{}
-	_ isolator.HostRoute = routeHelper{}
+	_ isolator.Isolator      = (*Driver)(nil)
+	_ isolator.DNSDomain     = dnsHelper{}
+	_ isolator.HostRoute     = routeHelper{}
+	_ isolator.NetworkAnchor = anchorHelper{}
 )

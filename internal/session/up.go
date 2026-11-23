@@ -110,6 +110,14 @@ func (s *Session) Up(ctx context.Context, options UpOptions) (*UpResult, error) 
 		return nil, err
 	}
 
+	restoreBox := s.ensureHostAnchor(ctx, options.Recreate)
+	recreateReached := false
+	defer func() {
+		if restoreBox != nil && !recreateReached {
+			restoreBox()
+		}
+	}()
+
 	imageTag, err := s.ensureImage(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -127,6 +135,7 @@ func (s *Session) Up(ctx context.Context, options UpOptions) (*UpResult, error) 
 	s.reportMissingInmateCredentials(ctx, client)
 	s.reportRequiredSecrets()
 
+	recreateReached = true
 	created, err := s.createOrStartBox(ctx, record, imageTag, ports,
 		shadowPaths, sudo, options.Recreate)
 	if err != nil {
@@ -372,12 +381,14 @@ func (s *Session) ensureImage(
 }
 
 func (s *Session) BuildImage(ctx context.Context) (string, error) {
+	s.ensureHostAnchor(ctx, false)
 	return s.ensureImage(ctx, nil)
 }
 
 func (s *Session) BuildImageWithRevisions(
 	ctx context.Context, revisions map[string]int,
 ) (string, error) {
+	s.ensureHostAnchor(ctx, false)
 	return s.ensureImage(ctx, revisions)
 }
 
