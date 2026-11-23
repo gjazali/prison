@@ -50,7 +50,9 @@ func pfRules(spec Spec) string {
 	fmt.Fprintf(&text,
 		"pass in quick inet proto udp from %s to any port 67\n",
 		spec.SubnetV4)
-	fmt.Fprintf(&text, "block drop in quick inet from %s to any\n",
+	// macOS pf.conf does not skip lo0; excluding it prevents dropping
+	// host-local replies (e.g. broker self-probes) from the gateway IP.
+	fmt.Fprintf(&text, "block drop in quick on ! lo0 inet from %s to any\n",
 		spec.SubnetV4)
 	if spec.SubnetV6 != "" {
 		fmt.Fprintf(&text,
@@ -58,7 +60,7 @@ func pfRules(spec Spec) string {
 		fmt.Fprintf(&text,
 			"pass in quick inet6 proto ipv6-icmp from %s to any\n",
 			spec.SubnetV6)
-		fmt.Fprintf(&text, "block drop in quick inet6 from %s to any\n",
+		fmt.Fprintf(&text, "block drop in quick on ! lo0 inet6 from %s to any\n",
 			spec.SubnetV6)
 	}
 	return text.String()
