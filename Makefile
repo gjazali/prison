@@ -17,7 +17,7 @@ build: guest host
 
 guest:
 	GOOS=$(GUEST_GOOS) GOARCH=$(GUEST_GOARCH) CGO_ENABLED=0 \
-		go build -trimpath -ldflags '$(LDFLAGS)' \
+		go build -trimpath -buildvcs=false -ldflags '-s -w' \
 		-o images/base/prison-guest ./cmd/prison-guest
 
 # The Linux build embeds the aws-firecracker guest kernel.
