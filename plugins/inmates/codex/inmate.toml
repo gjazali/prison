@@ -1,0 +1,63 @@
+[inmate]
+name = "codex"
+description = "openai.com"
+
+[image]
+dockerfile = "Dockerfile"
+version_arg = "CODEX_VERSION"
+
+[command]
+run = "codex"
+unsafe = "codex --dangerously-bypass-approvals-and-sandbox"
+
+[auth]
+upstream = "api.openai.com"
+intercept = true
+path_prefix = "/v1/"
+token_variable = "OPENAI_API_KEY"
+
+[[auth.credentials]]
+variable = "OPENAI_API_KEY"
+header = "Authorization"
+prefix = "Bearer "
+
+[auth.in_box]
+hosts = [
+  "api.openai.com",
+  "auth.openai.com",
+  "auth0.openai.com",
+  "chatgpt.com",
+  "*.chatgpt.com",
+  "*.oaistatic.com",
+  "*.oaiusercontent.com",
+]
+
+[persist]
+# `CODEX_HOME` keeps configuration, auth, and session history in one persisted
+# directory.
+paths = ["/home/dev/.codex"]
+
+[environment]
+CODEX_HOME = "/home/dev/.codex"
+
+[host]
+# `config.toml` is left out because host configs can contain MCP server
+# credentials, host paths, or keyring settings that do not belong in the box.
+copy = ["AGENTS.md", "agents/", "prompts/", "rules/", "skills/"]
+
+[[host.json]]
+# Codex reads API keys from `auth.json` rather than raw `OPENAI_API_KEY` alone.
+# Seed a placeholder key in broker mode so the broker can inject the real
+# credential on intercepted requests to `api.openai.com`.
+to = "auth.json"
+when_auth = "broker"
+set = { OPENAI_API_KEY = "prison-placeholder-${project_id}" }
+remove = [
+  "auth_mode",
+  "tokens",
+  "access_token",
+  "refresh_token",
+  "id_token",
+  "account_id",
+  "last_refresh",
+]

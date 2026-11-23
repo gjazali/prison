@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -136,7 +137,18 @@ func runInmateSession(name string, yolo bool) error {
 		}
 		current.SyncInmateHost(ctx, client, inmate)
 	}
-	return execInBox(ctx, current, client, "exec "+line, true)
+	err = execInBox(ctx, current, client, "exec "+line, true)
+	reportInmateSessionExit(err)
+	return err
+}
+
+const inmateExitNotice = "outside of Prison now; run any command in the Prison box directly with `prison run <command>`"
+
+func reportInmateSessionExit(err error) {
+	var exit *ui.ExitError
+	if err == nil || errors.As(err, &exit) {
+		ui.Progress("%s", inmateExitNotice)
+	}
 }
 
 func sessionCommandLine(inmate *plugin.Inmate, yolo bool) (string, error) {
