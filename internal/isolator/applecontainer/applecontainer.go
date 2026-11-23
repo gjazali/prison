@@ -64,8 +64,13 @@ func (driver *Driver) Route() isolator.HostRoute {
 	return routeHelper{driver: driver}
 }
 
+func (driver *Driver) UsesSocketUplink() bool {
+	return true
+}
+
 var (
-	_ isolator.Isolator  = (*Driver)(nil)
-	_ isolator.DNSDomain = dnsHelper{}
-	_ isolator.HostRoute = routeHelper{}
+	_ isolator.Isolator     = (*Driver)(nil)
+	_ isolator.SocketUplink = (*Driver)(nil)
+	_ isolator.DNSDomain    = dnsHelper{}
+	_ isolator.HostRoute    = routeHelper{}
 )

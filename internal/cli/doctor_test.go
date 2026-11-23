@@ -70,6 +70,31 @@ func TestDescribeListenerReportsBoundState(t *testing.T) {
 	}
 }
 
+func TestDescribeUplinkReportsConnectionState(t *testing.T) {
+	cases := []struct {
+		uplink control.Uplink
+		want   string
+	}{
+		{
+			uplink: control.Uplink{Box: "app.prison", Connected: true},
+			want:   "app.prison, connected",
+		},
+		{
+			uplink: control.Uplink{Box: "app.prison", Error: "connection refused"},
+			want:   "app.prison, disconnected: connection refused",
+		},
+		{
+			uplink: control.Uplink{Box: "app.prison"},
+			want:   "app.prison, disconnected",
+		},
+	}
+	for _, testCase := range cases {
+		if got := describeUplink(testCase.uplink); got != testCase.want {
+			t.Errorf("describeUplink = %q, want %q", got, testCase.want)
+		}
+	}
+}
+
 func TestDoctorIndentLeavesBlankLinesBlank(t *testing.T) {
 	var out strings.Builder
 	doctorIndent(&out, "container  /usr/bin/container\n\nversion\n  1.2\n", "  ")

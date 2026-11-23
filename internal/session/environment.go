@@ -26,6 +26,8 @@ const MiseGuestDir = GuestHome + "/.local/share/mise"
 
 const WorkspaceDir = "/workspace"
 
+const GuestUplinkSocket = "/run/prison/uplink.sock"
+
 const TrustStorePath = "/etc/ssl/certs/ca-certificates.crt"
 
 var TrustStoreVariables = []string{
@@ -54,9 +56,15 @@ func (s *Session) CreationEnvironment(token string, sudo bool,
 	persistPaths []string) []string {
 	assignments := []string{
 		"PRISON_TOKEN=" + token,
-		"PRISON_BROKER_PORT=" + strconv.Itoa(s.Overrides.BrokerPort),
 		"PRISON_SUDO=" + yesNo(sudo),
 		"LANG=C.UTF-8",
+	}
+	if s.UsesSocketUplink() {
+		assignments = append(assignments,
+			"PRISON_UPLINK_SOCKET="+GuestUplinkSocket)
+	} else {
+		assignments = append(assignments,
+			"PRISON_BROKER_PORT="+strconv.Itoa(s.Overrides.BrokerPort))
 	}
 	if len(persistPaths) > 0 {
 		assignments = append(assignments,
@@ -279,12 +287,16 @@ func (s *Session) Shape(image string, ports []isolator.PortMapping,
 	for _, mapping := range ports {
 		recorded = append(recorded, [2]int{mapping.Host, mapping.Guest})
 	}
+	network := s.Overrides.Network
+	if s.UsesSocketUplink() {
+		network = "none"
+	}
 	return &state.BoxShape{
 		Image:   image,
 		CPUs:    config.ResolveCPUs(s.Overrides, s.Config),
 		Memory:  config.ResolveMemory(s.Overrides, s.Config),
 		Sudo:    config.ResolveSudo(s.Overrides, s.Config),
-		Network: s.Overrides.Network,
+		Network: network,
 		Shadow:  shadowPaths,
 		Ports:   recorded,
 		Inmates: append([]string(nil), s.InmateNames...),

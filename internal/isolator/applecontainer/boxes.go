@@ -3,8 +3,10 @@ package applecontainer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,6 +53,9 @@ func (document boxDocument) boxInfo() isolator.BoxInfo {
 			info.Network = attachment.Network
 		}
 		info.Address = strings.SplitN(attachment.IPv4Address, "/", 2)[0]
+	}
+	if info.Network == "" {
+		info.Network = "none"
 	}
 	return info
 }
@@ -125,6 +130,10 @@ func createArguments(spec isolator.CreateSpec) []string {
 		arguments = append(arguments, "--publish", fmt.Sprintf(
 			"127.0.0.1:%d:%d", port.Host, port.Guest))
 	}
+	for _, socket := range spec.Sockets {
+		arguments = append(arguments, "--publish-socket",
+			socket.Host+":"+socket.Container)
+	}
 	for _, assignment := range spec.Environment {
 		arguments = append(arguments, "--env", assignment)
 	}
@@ -135,6 +144,15 @@ func createArguments(spec isolator.CreateSpec) []string {
 func (driver *Driver) Create(
 	ctx context.Context, spec isolator.CreateSpec,
 ) error {
+	for _, socket := range spec.Sockets {
+		if socket.Host == "" {
+			continue
+		}
+		if err := os.Remove(socket.Host); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("cannot remove stale socket %s: %w",
+				socket.Host, err)
+		}
+	}
 	_, stderr, status, err := driver.runCapturing(
 		ctx, containerBinary, createArguments(spec)...)
 	if err != nil {

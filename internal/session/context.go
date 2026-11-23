@@ -96,6 +96,10 @@ type Session struct {
 	BoxName       string
 }
 
+func (e *Environment) UsesSocketUplink() bool {
+	return e != nil && isolator.UsesSocketUplink(e.Isolator)
+}
+
 func (e *Environment) OpenCurrent() (*Session, error) {
 	directory, err := os.Getwd()
 	if err != nil {

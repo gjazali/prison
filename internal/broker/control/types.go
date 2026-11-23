@@ -19,6 +19,7 @@ type Status struct {
 	StateRoot         string             `json:"state_root"`
 	PID               int                `json:"pid"`
 	Listeners         []Listener         `json:"listeners"`
+	Uplinks           []Uplink           `json:"uplinks,omitempty"`
 	Vault             string             `json:"vault"`
 	Projects          []string           `json:"projects"`
 	InmateCredentials []InmateCredential `json:"inmate_credentials,omitempty"`
@@ -37,14 +38,26 @@ type Listener struct {
 	Error   string `json:"error,omitempty"`
 }
 
+type Uplink struct {
+	Box       string `json:"box"`
+	Socket    string `json:"socket"`
+	Connected bool   `json:"connected"`
+	Error     string `json:"error,omitempty"`
+}
+
+type AttachUplinkRequest struct {
+	Socket string `json:"socket"`
+}
+
 type PortForward struct {
 	Host  int `json:"host"`
 	Guest int `json:"guest"`
 }
 
-// PublishRequest makes the broker forward host loopback ports to a box.
+// PublishRequest forwards host loopback ports to a box via Address or Uplink.
 type PublishRequest struct {
-	Address string        `json:"address"`
+	Address string        `json:"address,omitempty"`
+	Uplink  string        `json:"uplink,omitempty"`
 	Ports   []PortForward `json:"ports"`
 }
 

@@ -154,13 +154,19 @@ func TestInBoxLoginProfileEnvironmentAndWarning(t *testing.T) {
 
 type fakeRecreateIsolator struct {
 	isolator.Isolator
-	exists    bool
-	running   bool
-	started   int
-	stopped   int
-	deleted   int
-	created   int
-	lastImage string
+	exists       bool
+	running      bool
+	socketUplink bool
+	started      int
+	stopped      int
+	deleted      int
+	created      int
+	lastImage    string
+	lastSpec     isolator.CreateSpec
+}
+
+func (f *fakeRecreateIsolator) UsesSocketUplink() bool {
+	return f.socketUplink
 }
 
 func (f *fakeRecreateIsolator) Box(ctx context.Context, name string) (isolator.BoxInfo, error) {
@@ -190,6 +196,7 @@ func (f *fakeRecreateIsolator) Create(ctx context.Context, spec isolator.CreateS
 	f.exists = true
 	f.running = true
 	f.lastImage = spec.Image
+	f.lastSpec = spec
 	return nil
 }
 
@@ -396,4 +403,57 @@ func TestCreateOrStartBoxDriftPromptsInteractively(t *testing.T) {
 				fake.deleted, fake.created)
 		}
 	})
+}
+
+func TestCreateOrStartBoxWithSocketUplink(t *testing.T) {
+	root, err := state.OpenRoot(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectDir := t.TempDir()
+	project, err := root.Project(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := &state.ProjectRecord{Path: projectDir}
+	fake := &fakeRecreateIsolator{socketUplink: true}
+	s := &Session{
+		Environment: &Environment{
+			Root:      root,
+			Isolator:  fake,
+			Overrides: &config.Overrides{Network: "prison", BrokerPort: 8787},
+		},
+		Directory: projectDir,
+		Project:   project,
+		Record:    record,
+		BoxName:   "proj-1234567890ab.prison",
+	}
+
+	ports := []isolator.PortMapping{{Host: 18080, Guest: 8080}}
+	created, err := s.createOrStartBox(
+		context.Background(), record, "prison/box:new", ports, nil, false, false)
+	if err != nil || !created {
+		t.Fatalf("createOrStartBox = %v, %v, want true, nil", created, err)
+	}
+	if fake.lastSpec.Network != "none" {
+		t.Errorf("spec.Network = %q, want none", fake.lastSpec.Network)
+	}
+	if len(fake.lastSpec.Ports) != 0 {
+		t.Errorf("spec.Ports = %+v, want empty (forwarded by broker)", fake.lastSpec.Ports)
+	}
+	if len(fake.lastSpec.Sockets) != 1 ||
+		fake.lastSpec.Sockets[0].Host != project.UplinkSocket() ||
+		fake.lastSpec.Sockets[0].Container != GuestUplinkSocket {
+		t.Errorf("spec.Sockets = %+v, want %s -> %s",
+			fake.lastSpec.Sockets, project.UplinkSocket(), GuestUplinkSocket)
+	}
+	if !slices.Contains(fake.lastSpec.Environment, "PRISON_UPLINK_SOCKET="+GuestUplinkSocket) {
+		t.Errorf("spec.Environment = %v, want PRISON_UPLINK_SOCKET", fake.lastSpec.Environment)
+	}
+	if record.Box == nil || record.Box.Network != "none" {
+		t.Errorf("record.Box = %+v, want Network=none", record.Box)
+	}
+	if len(record.Box.Ports) != 1 || record.Box.Ports[0] != [2]int{18080, 8080} {
+		t.Errorf("record.Box.Ports = %+v, want [[18080 8080]]", record.Box.Ports)
+	}
 }

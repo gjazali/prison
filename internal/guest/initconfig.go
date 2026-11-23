@@ -12,6 +12,7 @@ import (
 type initConfiguration struct {
 	token         string
 	brokerPort    int
+	uplinkSocket  string
 	sudo          bool
 	persistPaths  []string
 	readOnlyFiles []string
@@ -40,6 +41,9 @@ func readInitConfiguration(arguments []string,
 				"PRISON_BROKER_PORT=%q is not a port number", text)
 		}
 		configuration.brokerPort = port
+	}
+	if value, ok := lookupEnv("PRISON_UPLINK_SOCKET"); ok {
+		configuration.uplinkSocket = strings.TrimSpace(value)
 	}
 	if value, ok := lookupEnv("PRISON_SUDO"); ok {
 		configuration.sudo = value == "yes"

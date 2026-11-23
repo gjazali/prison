@@ -25,6 +25,7 @@ const (
 
 type brokerDialer struct {
 	brokerAddress string
+	dialRaw       func(context.Context) (net.Conn, error)
 	token         string
 	timeout       time.Duration
 }
@@ -84,11 +85,28 @@ func readHeadLine(reader *bufio.Reader) (string, error) {
 
 func (d *brokerDialer) connect(ctx context.Context, host string,
 	port int) (*tunnelConn, error) {
-	dialer := net.Dialer{Timeout: d.timeout}
-	raw, err := dialer.DialContext(ctx, "tcp4", d.brokerAddress)
-	if err != nil {
-		return nil, fmt.Errorf("cannot reach the broker at %s: %w",
-			d.brokerAddress, err)
+	var (
+		raw net.Conn
+		err error
+	)
+	if d.dialRaw != nil {
+		dialCtx := ctx
+		var cancel context.CancelFunc
+		if d.timeout > 0 {
+			dialCtx, cancel = context.WithTimeout(ctx, d.timeout)
+			defer cancel()
+		}
+		raw, err = d.dialRaw(dialCtx)
+		if err != nil {
+			return nil, fmt.Errorf("cannot reach the broker over uplink: %w", err)
+		}
+	} else {
+		dialer := net.Dialer{Timeout: d.timeout}
+		raw, err = dialer.DialContext(ctx, "tcp4", d.brokerAddress)
+		if err != nil {
+			return nil, fmt.Errorf("cannot reach the broker at %s: %w",
+				d.brokerAddress, err)
+		}
 	}
 	if err := raw.SetDeadline(time.Now().Add(d.timeout)); err != nil {
 		raw.Close()

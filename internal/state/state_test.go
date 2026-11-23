@@ -305,6 +305,33 @@ func TestBrokerListeners(t *testing.T) {
 	}
 }
 
+func TestBrokerUplinks(t *testing.T) {
+	root := newTestRoot(t)
+	if uplinks, err := root.BrokerUplinks(); err != nil || len(uplinks) != 0 {
+		t.Fatalf("BrokerUplinks(absent) = %v, %v, want empty, nil", uplinks, err)
+	}
+	if err := root.SaveBrokerUplinks(map[string]string{
+		" box-a.prison ": " /tmp/a.sock ",
+		"":               "/tmp/empty-box.sock",
+		"box-b.prison":   " ",
+	}); err != nil {
+		t.Fatalf("SaveBrokerUplinks: %v", err)
+	}
+	uplinks, err := root.BrokerUplinks()
+	if err != nil {
+		t.Fatalf("BrokerUplinks: %v", err)
+	}
+	if len(uplinks) != 1 || uplinks["box-a.prison"] != "/tmp/a.sock" {
+		t.Fatalf("BrokerUplinks = %v, want map[box-a.prison:/tmp/a.sock]", uplinks)
+	}
+	if err := root.SaveBrokerUplinks(nil); err != nil {
+		t.Fatalf("SaveBrokerUplinks(nil): %v", err)
+	}
+	if _, err := os.Stat(root.BrokerUplinksFile()); !os.IsNotExist(err) {
+		t.Errorf("broker-uplinks.json survived empty save: %v", err)
+	}
+}
+
 func TestTrustRecords(t *testing.T) {
 	root := newTestRoot(t)
 	record, err := root.TrustRecord("inmate", "claude")

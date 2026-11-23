@@ -135,6 +135,7 @@ func runDown(boxArgument string) error {
 	}
 	ui.Progress("stopping %s", boxName)
 	environment.UnpublishPorts(ctx, boxName)
+	environment.DetachUplink(ctx, boxName)
 	if err := environment.Isolator.Stop(ctx, boxName); err != nil {
 		return err
 	}
@@ -227,6 +228,7 @@ func removeBoxAndState(ctx context.Context,
 func destroyBox(ctx context.Context, environment *session.Environment,
 	boxName string) error {
 	environment.UnpublishPorts(ctx, boxName)
+	environment.DetachUplink(ctx, boxName)
 	_ = environment.Isolator.Stop(ctx, boxName)
 	if err := environment.Isolator.Delete(ctx, boxName); err != nil {
 		box, lookupError := environment.Isolator.Box(ctx, boxName)
@@ -379,11 +381,15 @@ func runStatus(command *cobra.Command) error {
 		return err
 	}
 	current.WarnAboutUntrustedConfiguration()
+	networkLabel := current.Overrides.Network
+	if current.UsesSocketUplink() {
+		networkLabel = "none (socket uplink)"
+	}
 	rows := [][]string{
 		{"project", current.Directory},
 		{"box", current.BoxName},
 		{"state", current.Project.Dir},
-		{"network", current.Overrides.Network},
+		{"network", networkLabel},
 		{"sudo", describeSudo(current)},
 		{"inmates", describeStatusInmates(current)},
 		{"secrets", describeGrantedSecrets(current)},

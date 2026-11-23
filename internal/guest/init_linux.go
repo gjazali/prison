@@ -70,23 +70,53 @@ func runContainerInit(arguments []string, gatewayPorts []int,
 		return 2
 	}
 
-	gateway, err := defaultGateway(runner)
-	if err != nil {
-		logger.Printf("cannot find the default route: %v", err)
-		return 1
+	var dialer *brokerDialer
+	if configuration.uplinkSocket != "" {
+		if err := installUplinkFirewall(runner); err != nil {
+			logger.Printf("cannot install the firewall: %v", err)
+			return 1
+		}
+		if err := proveEgressClosed(); err != nil {
+			logger.Printf("%v", err)
+			return 1
+		}
+		uplink, err := startUplinkTransport(configuration.uplinkSocket, logger)
+		if err != nil {
+			logger.Printf("uplink: %v", err)
+			return 1
+		}
+		defer uplink.Close()
+		logger.Printf("egress restricted to uplink %s", configuration.uplinkSocket)
+		dialer = &brokerDialer{
+			dialRaw: uplink.OpenStream,
+			token:   configuration.token,
+			timeout: brokerDialTimeout,
+		}
+	} else {
+		gateway, err := defaultGateway(runner)
+		if err != nil {
+			logger.Printf("cannot find the default route: %v", err)
+			return 1
+		}
+		err = installFirewall(runner, gateway, configuration.brokerPort,
+			gatewayPorts)
+		if err != nil {
+			logger.Printf("cannot install the firewall: %v", err)
+			return 1
+		}
+		if err := proveEgressClosed(); err != nil {
+			logger.Printf("%v", err)
+			return 1
+		}
+		logger.Printf("egress restricted to %s port %d", gateway,
+			configuration.brokerPort)
+		dialer = &brokerDialer{
+			brokerAddress: net.JoinHostPort(gateway.String(),
+				strconv.Itoa(configuration.brokerPort)),
+			token:   configuration.token,
+			timeout: brokerDialTimeout,
+		}
 	}
-	err = installFirewall(runner, gateway, configuration.brokerPort,
-		gatewayPorts)
-	if err != nil {
-		logger.Printf("cannot install the firewall: %v", err)
-		return 1
-	}
-	if err := proveEgressClosed(); err != nil {
-		logger.Printf("%v", err)
-		return 1
-	}
-	logger.Printf("egress restricted to %s port %d", gateway,
-		configuration.brokerPort)
 
 	dev := lookupDevIdentity()
 	if err := configureSudo(runner, configuration.sudo); err != nil {
@@ -118,12 +148,6 @@ func runContainerInit(arguments []string, gatewayPorts []int,
 
 	sentinels := newSentinelAllocator()
 	allowList := newAllowListHolder()
-	dialer := &brokerDialer{
-		brokerAddress: net.JoinHostPort(gateway.String(),
-			strconv.Itoa(configuration.brokerPort)),
-		token:   configuration.token,
-		timeout: brokerDialTimeout,
-	}
 	resolverConn, err := net.ListenPacket("udp4",
 		net.JoinHostPort(resolverAddress, strconv.Itoa(resolverPort)))
 	if err != nil {

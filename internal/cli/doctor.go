@@ -100,8 +100,12 @@ func (report *doctorReport) reportPrison() {
 	report.detail("executable", "%s", report.environment.Executable)
 	report.detail("state root", "%s", report.environment.Root.Path)
 	report.detail("domain", "%s", overrides.Domain)
-	report.detail("network", "%s", overrides.Network)
-	report.detail("broker port", "%d", overrides.BrokerPort)
+	if report.environment.UsesSocketUplink() {
+		report.detail("network", "none (socket uplink)")
+	} else {
+		report.detail("network", "%s", overrides.Network)
+		report.detail("broker port", "%d", overrides.BrokerPort)
+	}
 }
 
 func (report *doctorReport) reportIsolator(ctx context.Context) {
@@ -124,8 +128,13 @@ func (report *doctorReport) reportIsolator(ctx context.Context) {
 func (report *doctorReport) reportNetwork(
 	ctx context.Context,
 ) isolator.NetworkInfo {
-	name := report.environment.Overrides.Network
 	report.heading("network")
+	if report.environment.UsesSocketUplink() {
+		report.detail("mode", "none (socket uplink)")
+		report.note("boxes have no network interface and reach the broker over a Unix domain socket")
+		return isolator.NetworkInfo{Name: "none", Exists: true, HostOnly: true}
+	}
+	name := report.environment.Overrides.Network
 	report.detail("name", "%s", name)
 	info, err := report.environment.Isolator.Network(ctx, name)
 	if err != nil {
@@ -183,6 +192,9 @@ func (report *doctorReport) reportBroker(ctx context.Context) {
 	for _, listener := range status.Listeners {
 		report.detail("listener", "%s", describeListener(listener))
 	}
+	for _, uplink := range status.Uplinks {
+		report.detail("uplink", "%s", describeUplink(uplink))
+	}
 	report.detail("projects", "%d", len(status.Projects))
 }
 
@@ -190,6 +202,11 @@ func (report *doctorReport) reportFirewall(
 	ctx context.Context, network isolator.NetworkInfo,
 ) {
 	report.heading("firewall")
+	if report.environment.UsesSocketUplink() {
+		report.detail("state", "not needed")
+		report.note("boxes have no network interface; traffic uses a Unix domain socket uplink")
+		return
+	}
 	if network.SubnetV4 == "" {
 		report.note("the box network has no subnet. Run `prison up`")
 		report.detail("read rules", "%s", hostfw.ReadCommand())

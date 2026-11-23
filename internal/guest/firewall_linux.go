@@ -35,10 +35,21 @@ const firewallRulesFile = "/run/prison-firewall"
 
 func installFirewall(runner *commandRunner, gateway netip.Addr,
 	brokerPort int, gatewayPorts []int) error {
+	return applyFirewallRules(runner,
+		firewallRulesV4(gateway, brokerPort, gatewayPorts),
+		firewallRulesV6())
+}
+
+func installUplinkFirewall(runner *commandRunner) error {
+	return applyFirewallRules(runner,
+		firewallRulesV4Uplink(),
+		firewallRulesV6())
+}
+
+func applyFirewallRules(runner *commandRunner, rulesV4, rulesV6 string) error {
 	restores := []struct{ program, rules string }{
-		{"iptables-restore",
-			firewallRulesV4(gateway, brokerPort, gatewayPorts)},
-		{"ip6tables-restore", firewallRulesV6()},
+		{"iptables-restore", rulesV4},
+		{"ip6tables-restore", rulesV6},
 	}
 	for _, restore := range restores {
 		err := os.WriteFile(firewallRulesFile, []byte(restore.rules), 0o600)
@@ -52,6 +63,31 @@ func installFirewall(runner *commandRunner, gateway netip.Addr,
 		}
 	}
 	return nil
+}
+
+func firewallRulesV4Uplink() string {
+	lines := []string{
+		"*filter",
+		":INPUT DROP [0:0]",
+		":FORWARD DROP [0:0]",
+		":OUTPUT DROP [0:0]",
+		"-A INPUT -i lo -j ACCEPT",
+		"-A OUTPUT -o lo -j ACCEPT",
+		"-A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+		"-A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+		"-A OUTPUT -p tcp -j REJECT --reject-with tcp-reset",
+		"-A OUTPUT -j REJECT --reject-with icmp-port-unreachable",
+		"COMMIT",
+		"*nat",
+		":PREROUTING ACCEPT [0:0]",
+		":INPUT ACCEPT [0:0]",
+		":OUTPUT ACCEPT [0:0]",
+		":POSTROUTING ACCEPT [0:0]",
+		"-A OUTPUT -d " + sentinelNetwork + " -p tcp -j REDIRECT --to-ports " +
+			strconv.Itoa(tunnelPort),
+		"COMMIT",
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func firewallRulesV4(gateway netip.Addr, brokerPort int,

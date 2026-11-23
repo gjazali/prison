@@ -276,6 +276,48 @@ func TestCreateBuildsExpectedArgv(t *testing.T) {
 	}
 }
 
+func TestCreateWithSocketUplinkPublishesSocketAndCleansStaleFile(t *testing.T) {
+	stale := filepath.Join(t.TempDir(), "uplink.sock")
+	if err := os.WriteFile(stale, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec := isolator.CreateSpec{
+		Name:    "site-abc.prison",
+		Image:   "prison/box:0da0a03e6e05",
+		Network: "none",
+		Sockets: []isolator.SocketForward{{
+			Host:      stale,
+			Container: "/run/prison/uplink.sock",
+		}},
+		Environment: []string{"PRISON_UPLINK_SOCKET=/run/prison/uplink.sock"},
+		Command:     []string{"sleep", "infinity"},
+	}
+	want := strings.Join([]string{
+		"container run --detach --name site-abc.prison",
+		"--network none",
+		"--publish-socket " + stale + ":/run/prison/uplink.sock",
+		"--env PRISON_UPLINK_SOCKET=/run/prison/uplink.sock",
+		"prison/box:0da0a03e6e05 sleep infinity",
+	}, " ")
+
+	runner := newFixtureRunner()
+	runner.answer(want, fixtureResponse{})
+	runner.answer("container exec site-abc.prison true", fixtureResponse{})
+	driver := newTestDriver(runner)
+	if !isolator.UsesSocketUplink(driver) {
+		t.Fatal("UsesSocketUplink(applecontainer) = false, want true")
+	}
+	if err := driver.Create(context.Background(), spec); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Errorf("stale socket %s still exists: %v", stale, err)
+	}
+	if runner.calls[0] != want {
+		t.Errorf("run command =\n  %s\nwant\n  %s", runner.calls[0], want)
+	}
+}
+
 func TestCreateReportsAStoppedBox(t *testing.T) {
 	spec := isolator.CreateSpec{
 		Name: "doomed", Image: "prison/box:1", Network: "prison",

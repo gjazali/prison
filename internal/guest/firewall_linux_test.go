@@ -41,3 +41,23 @@ func TestFirewallRulesV6AllowOnlyNeighborDiscovery(t *testing.T) {
 		t.Errorf("firewallRulesV6() = %s, want ipv6-icmp accepted", rules)
 	}
 }
+
+func TestFirewallRulesV4Uplink(t *testing.T) {
+	rules := firewallRulesV4Uplink()
+	for _, want := range []string{
+		":OUTPUT DROP [0:0]",
+		"-A INPUT -i lo -j ACCEPT",
+		"-A OUTPUT -o lo -j ACCEPT",
+		"-A OUTPUT -d 127.99.0.0/16 -p tcp -j REDIRECT --to-ports 8790",
+	} {
+		if !strings.Contains(rules, want) {
+			t.Errorf("firewallRulesV4Uplink() = %s, want %q", rules, want)
+		}
+	}
+	if strings.Contains(rules, "--dport") {
+		t.Errorf("firewallRulesV4Uplink() = %s, want no gateway --dport rules", rules)
+	}
+	if strings.Count(rules, "COMMIT") != 2 {
+		t.Errorf("firewallRulesV4Uplink() = %s, want 2 COMMIT lines", rules)
+	}
+}

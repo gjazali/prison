@@ -1,13 +1,17 @@
 package session
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"runtime"
 	"strconv"
 	"time"
 
+	"prison/internal/broker/control"
 	"prison/internal/config"
 	"prison/internal/isolator"
+	"prison/internal/ui"
 )
 
 const portProbeTimeout = 100 * time.Millisecond
@@ -103,4 +107,45 @@ func PortsExhaustedMessage(base, limit int) string {
 	return fmt.Sprintf(
 		"host ports %d to %d are all taken. Remove an unused box with "+
 			"`prison rm` or set the ports in prison.toml", base, limit)
+}
+
+func (s *Session) publishPorts(ctx context.Context, client *control.Client,
+	ports []isolator.PortMapping) {
+	if len(ports) == 0 {
+		return
+	}
+	var request control.PublishRequest
+	if s.UsesSocketUplink() {
+		request.Uplink = s.BoxName
+	} else if runtime.GOOS == "linux" {
+		box, err := s.Isolator.Box(ctx, s.BoxName)
+		if err != nil || box.Address == "" {
+			ui.Warn("cannot publish the ports because the box has no address")
+			return
+		}
+		request.Address = box.Address
+	} else {
+		return
+	}
+	for _, port := range ports {
+		request.Ports = append(request.Ports,
+			control.PortForward{Host: port.Host, Guest: port.Guest})
+	}
+	if err := client.Publish(ctx, s.BoxName, request); err != nil {
+		ui.Warn("cannot publish the ports: %v", err)
+	}
+}
+
+func (e *Environment) UnpublishPorts(ctx context.Context, boxName string) {
+	client := control.NewClient(e.Root.BrokerSocket())
+	if client.Alive(ctx) {
+		_ = client.Unpublish(ctx, boxName)
+	}
+}
+
+func (e *Environment) DetachUplink(ctx context.Context, boxName string) {
+	client := control.NewClient(e.Root.BrokerSocket())
+	if client.Alive(ctx) {
+		_ = client.DetachUplink(ctx, boxName)
+	}
 }

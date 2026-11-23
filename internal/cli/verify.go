@@ -268,6 +268,33 @@ func checkBrokerIsReachable(ctx context.Context,
 
 func checkHostFirewallIsInstalled(ctx context.Context,
 	current *session.Session, verification *isolationVerification) {
+	if current.UsesSocketUplink() {
+		status, output, err := runInBoxShell(ctx, current,
+			"ip -o link show | awk -F': ' '{print $2}'")
+		if err != nil || status != 0 {
+			verification.fail("host firewall",
+				"cannot inspect box network interfaces: %s",
+				firstLineOfOutput(output))
+			return
+		}
+		var extra []string
+		for _, line := range strings.Split(output, "\n") {
+			name := strings.TrimSpace(line)
+			if name == "" || name == "lo" {
+				continue
+			}
+			extra = append(extra, name)
+		}
+		if len(extra) > 0 {
+			verification.fail("host firewall",
+				"unexpected box network interface: %s",
+				strings.Join(extra, ", "))
+			return
+		}
+		verification.pass("host firewall",
+			"not needed (box has only lo; socket uplink)")
+		return
+	}
 	network, err := current.Isolator.Network(ctx, current.Overrides.Network)
 	if err != nil {
 		verification.fail("host firewall",

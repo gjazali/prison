@@ -54,9 +54,12 @@ func printAccessSummary(ctx context.Context, current *session.Session,
 	if current.Record != nil && current.Record.Box != nil && current.Record.Box.Sudo {
 		ui.Summary("sudo", "granted in this box")
 	}
-	if result.Network.HostOnly {
+	switch {
+	case result.Network.Name == "none":
+		ui.Summary("network", "none (socket uplink)")
+	case result.Network.HostOnly:
 		ui.Summary("network", "%s, host-only", result.Network.Name)
-	} else {
+	default:
 		ui.Summary("network", "%s, not host-only", result.Network.Name)
 	}
 	if len(current.Inmates) > 0 {
@@ -69,10 +72,12 @@ func printAccessSummary(ctx context.Context, current *session.Session,
 	}
 	ui.Summary("image", "%s", result.Image)
 	ui.Summary("egress", "%s", current.Project.EgressAllowFile())
-	printHostnameSummary(current)
-	if box, err := current.Isolator.Box(ctx, current.BoxName); err == nil &&
-		box.Address != "" {
-		ui.Summary("ip", "%s", box.Address)
+	if result.Network.Name != "none" {
+		printHostnameSummary(current)
+		if box, err := current.Isolator.Box(ctx, current.BoxName); err == nil &&
+			box.Address != "" {
+			ui.Summary("ip", "%s", box.Address)
+		}
 	}
 	if current.ConfigPresent {
 		if current.ConfigTrusted {

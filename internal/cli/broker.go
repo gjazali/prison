@@ -146,12 +146,16 @@ func runBrokerStatus(command *cobra.Command) error {
 	fmt.Fprintf(out, "%-14s %s\n", "state root", status.StateRoot)
 	fmt.Fprintf(out, "%-14s %d\n", "pid", status.PID)
 	fmt.Fprintf(out, "%-14s %s\n", "vault", describeVaultState(status.Vault))
-	if len(status.Listeners) == 0 {
+	if len(status.Listeners) == 0 && len(status.Uplinks) == 0 {
 		fmt.Fprintf(out, "%-14s %s\n", "listeners", "none")
 	}
 	for _, listener := range status.Listeners {
 		fmt.Fprintf(out, "%-14s %s\n", "listener",
 			describeListener(listener))
+	}
+	for _, uplink := range status.Uplinks {
+		fmt.Fprintf(out, "%-14s %s\n", "uplink",
+			describeUplink(uplink))
 	}
 	fmt.Fprintf(out, "%-14s %d\n", "projects", len(status.Projects))
 	if len(status.InmateCredentials) > 0 {
@@ -200,6 +204,16 @@ func describeListener(listener control.Listener) string {
 		return address + ", not bound: " + listener.Error
 	}
 	return address + ", not bound"
+}
+
+func describeUplink(uplink control.Uplink) string {
+	if uplink.Connected {
+		return uplink.Box + ", connected"
+	}
+	if uplink.Error != "" {
+		return uplink.Box + ", disconnected: " + uplink.Error
+	}
+	return uplink.Box + ", disconnected"
 }
 
 func runBrokerStop(command *cobra.Command) error {
@@ -262,6 +276,9 @@ func runBrokerRestart(command *cobra.Command) error {
 	fmt.Fprintf(out, "restarted the broker (pid %d)\n", status.PID)
 	for _, listener := range status.Listeners {
 		fmt.Fprintf(out, "%-14s %s\n", "listener", describeListener(listener))
+	}
+	for _, uplink := range status.Uplinks {
+		fmt.Fprintf(out, "%-14s %s\n", "uplink", describeUplink(uplink))
 	}
 	if vault.Exists(environment.Root.VaultFile()) && status.Vault != control.VaultUnlocked {
 		fmt.Fprintln(out, "the vault is locked. Run `prison secret unlock`")

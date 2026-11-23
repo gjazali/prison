@@ -78,6 +78,22 @@ func (client *Client) Listen(ctx context.Context, address string) (*Listener, er
 	return &listener, nil
 }
 
+// AttachUplink can return Connected false while the broker retries in the background.
+func (client *Client) AttachUplink(ctx context.Context, box, socket string) (*Uplink, error) {
+	var uplink Uplink
+	err := client.do(ctx, http.MethodPut, "/uplinks/"+url.PathEscape(box),
+		AttachUplinkRequest{Socket: socket}, &uplink)
+	if err != nil {
+		return nil, err
+	}
+	return &uplink, nil
+}
+
+func (client *Client) DetachUplink(ctx context.Context, box string) error {
+	return client.do(ctx, http.MethodDelete,
+		"/uplinks/"+url.PathEscape(box), nil, nil)
+}
+
 func (client *Client) UpdateProject(ctx context.Context, projectID string,
 	update ProjectUpdate) error {
 	return client.do(ctx, http.MethodPut, "/projects/"+url.PathEscape(projectID),

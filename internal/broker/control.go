@@ -21,6 +21,8 @@ func (broker *Broker) controlHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", broker.handleStatus)
 	mux.HandleFunc("POST /listen", broker.handleListen)
+	mux.HandleFunc("PUT /uplinks/{box}", broker.handleAttachUplink)
+	mux.HandleFunc("DELETE /uplinks/{box}", broker.handleDetachUplink)
 	mux.HandleFunc("PUT /projects/{id}", broker.handleUpdateProject)
 	mux.HandleFunc("GET /projects/{id}/environment", broker.handleProjectEnvironment)
 	mux.HandleFunc("POST /vault/unlock", broker.handleUnlock)
@@ -67,6 +69,7 @@ func (broker *Broker) handleStatus(w http.ResponseWriter, r *http.Request) {
 		StateRoot:         broker.root.Path,
 		PID:               os.Getpid(),
 		Listeners:         broker.listenerStates(),
+		Uplinks:           broker.uplinkStates(),
 		Vault:             broker.vaultState(),
 		Projects:          projects,
 		InmateCredentials: broker.inmateCredentialSummaries(),
@@ -84,6 +87,33 @@ func (broker *Broker) handleListen(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, broker.listen(request.Address))
+}
+
+func (broker *Broker) handleAttachUplink(w http.ResponseWriter, r *http.Request) {
+	box := r.PathValue("box")
+	if box == "" {
+		relay.WriteError(w, http.StatusBadRequest, "a box name is required")
+		return
+	}
+	var request control.AttachUplinkRequest
+	if !decodeJSONBody(w, r, &request) {
+		return
+	}
+	if request.Socket == "" {
+		relay.WriteError(w, http.StatusBadRequest, "a socket path is required")
+		return
+	}
+	writeJSON(w, http.StatusOK, broker.attachUplink(box, request.Socket))
+}
+
+func (broker *Broker) handleDetachUplink(w http.ResponseWriter, r *http.Request) {
+	box := r.PathValue("box")
+	if box == "" {
+		relay.WriteError(w, http.StatusBadRequest, "a box name is required")
+		return
+	}
+	broker.detachUplink(box)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (broker *Broker) handleUpdateProject(w http.ResponseWriter, r *http.Request) {

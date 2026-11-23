@@ -116,6 +116,46 @@ func normalizeListenerAddresses(addresses []string) []string {
 	return cleaned
 }
 
+func (r *Root) BrokerUplinksFile() string {
+	return filepath.Join(r.Path, "broker-uplinks.json")
+}
+
+func (r *Root) BrokerUplinks() (map[string]string, error) {
+	var uplinks map[string]string
+	found, err := readJSONFile(r.BrokerUplinksFile(), &uplinks)
+	if err != nil {
+		return nil, err
+	}
+	if !found || len(uplinks) == 0 {
+		return map[string]string{}, nil
+	}
+	return normalizeUplinks(uplinks), nil
+}
+
+func (r *Root) SaveBrokerUplinks(uplinks map[string]string) error {
+	cleaned := normalizeUplinks(uplinks)
+	if len(cleaned) == 0 {
+		if err := os.Remove(r.BrokerUplinksFile()); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("cannot remove %s: %w", r.BrokerUplinksFile(), err)
+		}
+		return nil
+	}
+	return writeJSONFile(r.BrokerUplinksFile(), cleaned)
+}
+
+func normalizeUplinks(uplinks map[string]string) map[string]string {
+	cleaned := make(map[string]string, len(uplinks))
+	for box, socket := range uplinks {
+		box = strings.TrimSpace(box)
+		socket = strings.TrimSpace(socket)
+		if box == "" || socket == "" {
+			continue
+		}
+		cleaned[box] = socket
+	}
+	return cleaned
+}
+
 func (r *Root) InmatesDir() string {
 	return filepath.Join(r.Path, "inmates")
 }

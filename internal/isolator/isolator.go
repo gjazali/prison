@@ -38,6 +38,11 @@ type PortMapping struct {
 	Guest int
 }
 
+type SocketForward struct {
+	Host      string
+	Container string
+}
+
 type CreateSpec struct {
 	Name         string
 	Image        string
@@ -46,9 +51,22 @@ type CreateSpec struct {
 	Memory       string
 	Mounts       []Mount
 	Ports        []PortMapping
+	Sockets      []SocketForward
 	Environment  []string
 	Capabilities []string
 	Command      []string
+}
+
+// SocketUplink marks isolators whose boxes reach the broker over a Unix socket.
+type SocketUplink interface {
+	UsesSocketUplink() bool
+}
+
+func UsesSocketUplink(iso Base) bool {
+	if uplink, ok := iso.(SocketUplink); ok {
+		return uplink.UsesSocketUplink()
+	}
+	return false
 }
 
 // ExecSpec uses the matching stream of the prison process for a nil stream.

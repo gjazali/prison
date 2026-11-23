@@ -71,6 +71,7 @@ type Broker struct {
 
 	listeners     listenerManager
 	probeListener func(address string, port int) error
+	uplinks       uplinkManager
 	forwards      forwardTable
 
 	limiter *limits.RateLimiter
@@ -119,6 +120,7 @@ func Run(ctx context.Context, options Options) error {
 		broker.logger.Print(err)
 	}
 	broker.restoreListeners()
+	broker.restoreUplinks()
 
 	controlServer := &http.Server{
 		Handler:           broker.controlHandler(),
@@ -151,6 +153,7 @@ func Run(ctx context.Context, options Options) error {
 		controlServer.Close()
 	}
 	broker.closeListeners()
+	broker.closeUplinks()
 	broker.forwards.closeAll()
 	broker.lockVault()
 	broker.inmateTransport.CloseIdleConnections()
@@ -184,7 +187,9 @@ func newBroker(ctx context.Context, options Options) *Broker {
 		shutdownRequested: make(chan struct{}),
 	}
 	broker.listeners.byAddress = map[string]*tcpListener{}
+	broker.uplinks.byBox = map[string]*boxUplink{}
 	broker.forwards.logger = broker.logger
+	broker.forwards.dialUplink = broker.openForward
 	broker.projects.Store(&projectTable{byID: map[string]*projectSnapshot{}})
 	broker.floor.Store(&floorState{})
 	return broker

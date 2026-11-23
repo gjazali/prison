@@ -68,18 +68,26 @@ func (s *Session) Up(ctx context.Context, options UpOptions) (*UpResult, error) 
 		return nil, err
 	}
 
-	network, err := s.ensureNetwork(ctx)
-	if err != nil {
-		return nil, err
+	var network isolator.NetworkInfo
+	sudo := config.ResolveSudo(s.Overrides, s.Config)
+	if s.UsesSocketUplink() {
+		network = isolator.NetworkInfo{
+			Name:     "none",
+			Exists:   true,
+			HostOnly: true,
+		}
+	} else {
+		network, err = s.ensureNetwork(ctx)
+		if err != nil {
+			return nil, err
+		}
+		s.ensureHostDNS(ctx)
+		if err := s.ensureHostFirewall(ctx, network); err != nil {
+			return nil, err
+		}
 	}
 	result.Network = network
 	result.Gateway = network.Gateway
-
-	sudo := config.ResolveSudo(s.Overrides, s.Config)
-	s.ensureHostDNS(ctx)
-	if err := s.ensureHostFirewall(ctx, network); err != nil {
-		return nil, err
-	}
 	if sudo {
 		ui.Warn("this box has sudo")
 	}
@@ -134,9 +142,15 @@ func (s *Session) Up(ctx context.Context, options UpOptions) (*UpResult, error) 
 	}
 	result.Created = created
 
-	s.ensureHostRoute(ctx, network)
-	if err := s.ensureBrokerListener(ctx, client, network.Gateway); err != nil {
-		return nil, err
+	if s.UsesSocketUplink() {
+		if err := s.ensureBrokerUplink(ctx, client); err != nil {
+			return nil, err
+		}
+	} else {
+		s.ensureHostRoute(ctx, network)
+		if err := s.ensureBrokerListener(ctx, client, network.Gateway); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := s.WaitUntilReady(ctx); err != nil {
@@ -187,14 +201,18 @@ func (s *Session) ensureBroker(ctx context.Context) (*control.Client, error) {
 	return client, nil
 }
 
-// EnsureBrokerReady verifies the broker is alive, matches this CLI version,
-// is listening on the box network gateway, and has this project's profile.
 func (s *Session) EnsureBrokerReady(ctx context.Context) (*control.Client, error) {
 	client, err := s.ensureBroker(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if network, err := s.Isolator.Network(ctx, s.Overrides.Network); err == nil &&
+	if s.UsesSocketUplink() {
+		if _, err := os.Stat(s.Project.UplinkSocket()); err == nil {
+			if err := s.ensureBrokerUplink(ctx, client); err != nil {
+				return nil, err
+			}
+		}
+	} else if network, err := s.Isolator.Network(ctx, s.Overrides.Network); err == nil &&
 		network.Gateway != "" {
 		s.ensureHostRoute(ctx, network)
 		if err := s.ensureBrokerListener(ctx, client, network.Gateway); err != nil {
@@ -208,6 +226,38 @@ func (s *Session) EnsureBrokerReady(ctx context.Context) (*control.Client, error
 		return nil, err
 	}
 	return client, nil
+}
+
+func (s *Session) ensureBrokerUplink(
+	ctx context.Context, client *control.Client,
+) error {
+	socketPath := s.Project.UplinkSocket()
+	deadline := time.Now().Add(listenerReadyTimeout)
+	var lastUplink *control.Uplink
+	for {
+		uplink, err := client.AttachUplink(ctx, s.BoxName, socketPath)
+		if err != nil {
+			return fmt.Errorf("cannot attach the broker uplink for %s: %w",
+				s.BoxName, err)
+		}
+		if uplink != nil && uplink.Connected {
+			return nil
+		}
+		lastUplink = uplink
+		if !time.Now().Before(deadline) {
+			detail := "the box uplink socket did not accept a connection"
+			if lastUplink != nil && lastUplink.Error != "" {
+				detail = lastUplink.Error
+			}
+			return fmt.Errorf("the broker could not connect to %s at %s: %s",
+				s.BoxName, socketPath, detail)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 func (s *Session) ensureBrokerListener(
@@ -526,6 +576,7 @@ func (s *Session) createOrStartBox(
 	if box.Exists && recreate {
 		ui.Progress("recreating %s", s.BoxName)
 		s.UnpublishPorts(ctx, s.BoxName)
+		s.DetachUplink(ctx, s.BoxName)
 		_ = s.Isolator.Stop(ctx, s.BoxName)
 		if err := s.Isolator.Delete(ctx, s.BoxName); err != nil {
 			current, lookupErr := s.Isolator.Box(ctx, s.BoxName)
@@ -547,7 +598,7 @@ func (s *Session) createOrStartBox(
 	spec := isolator.CreateSpec{
 		Name:         s.BoxName,
 		Image:        imageTag,
-		Network:      s.Overrides.Network,
+		Network:      shape.Network,
 		CPUs:         shape.CPUs,
 		Memory:       shape.Memory,
 		Mounts:       s.Mounts(shadowPaths),
@@ -555,6 +606,13 @@ func (s *Session) createOrStartBox(
 		Environment:  s.CreationEnvironment(token, sudo, s.PersistPaths()),
 		Capabilities: []string{"NET_ADMIN", "SYS_ADMIN"},
 		Command:      []string{"sleep", "infinity"},
+	}
+	if s.UsesSocketUplink() {
+		spec.Ports = nil
+		spec.Sockets = []isolator.SocketForward{{
+			Host:      s.Project.UplinkSocket(),
+			Container: GuestUplinkSocket,
+		}}
 	}
 	if err := s.Isolator.Create(ctx, spec); err != nil {
 		return false, err

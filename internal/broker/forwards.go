@@ -16,21 +16,46 @@ import (
 
 const forwardDialTimeout = 5 * time.Second
 
-// forwardTable publishes box ports on the host loopback (because Firecracker
-// does not publish them).
 type forwardTable struct {
-	mutex  sync.Mutex
-	byBox  map[string][]net.Listener
-	logger *log.Logger
+	mutex      sync.Mutex
+	byBox      map[string][]net.Listener
+	logger     *log.Logger
+	dialUplink func(box string, guestPort int) (net.Conn, error)
 }
 
 // publish replaces the forwards of a box. On failure, the box has no
 // forwards.
 func (table *forwardTable) publish(box string,
 	request control.PublishRequest) error {
-	target, err := netip.ParseAddr(request.Address)
-	if err != nil {
-		return fmt.Errorf("box address %q is not valid", request.Address)
+	var dialBox func(guestPort int) (net.Conn, error)
+	var labelFor func(guestPort int) string
+	switch {
+	case request.Uplink != "":
+		if table.dialUplink == nil {
+			return fmt.Errorf("uplink forwarding is not available")
+		}
+		uplinkBox := request.Uplink
+		dialBox = func(guestPort int) (net.Conn, error) {
+			return table.dialUplink(uplinkBox, guestPort)
+		}
+		labelFor = func(guestPort int) string {
+			return fmt.Sprintf("uplink:%s:%d", uplinkBox, guestPort)
+		}
+	case request.Address != "":
+		target, err := netip.ParseAddr(request.Address)
+		if err != nil {
+			return fmt.Errorf("box address %q is not valid", request.Address)
+		}
+		dialBox = func(guestPort int) (net.Conn, error) {
+			destination := net.JoinHostPort(target.String(),
+				strconv.Itoa(guestPort))
+			return net.DialTimeout("tcp", destination, forwardDialTimeout)
+		}
+		labelFor = func(guestPort int) string {
+			return net.JoinHostPort(target.String(), strconv.Itoa(guestPort))
+		}
+	default:
+		return fmt.Errorf("a box address or uplink is required")
 	}
 	table.unpublish(box)
 	var listeners []net.Listener
@@ -44,9 +69,10 @@ func (table *forwardTable) publish(box string,
 			return fmt.Errorf("cannot publish port %d: %w", port.Host, err)
 		}
 		listeners = append(listeners, listener)
-		destination := net.JoinHostPort(target.String(),
-			strconv.Itoa(port.Guest))
-		go table.serve(listener, destination)
+		guestPort := port.Guest
+		go table.serve(listener, labelFor(guestPort), func() (net.Conn, error) {
+			return dialBox(guestPort)
+		})
 	}
 	table.mutex.Lock()
 	if table.byBox == nil {
@@ -79,23 +105,24 @@ func (table *forwardTable) closeAll() {
 	}
 }
 
-func (table *forwardTable) serve(listener net.Listener, destination string) {
+func (table *forwardTable) serve(listener net.Listener, label string,
+	dial func() (net.Conn, error)) {
 	for {
 		client, err := listener.Accept()
 		if errors.Is(err, net.ErrClosed) {
 			return
 		}
 		if err != nil {
-			table.logf("forward %s: %v", destination, err)
+			table.logf("forward %s: %v", label, err)
 			return
 		}
-		go table.forward(client, destination)
+		go table.forward(client, dial)
 	}
 }
 
-func (table *forwardTable) forward(client net.Conn, destination string) {
+func (table *forwardTable) forward(client net.Conn, dial func() (net.Conn, error)) {
 	defer client.Close()
-	box, err := net.DialTimeout("tcp", destination, forwardDialTimeout)
+	box, err := dial()
 	if err != nil {
 		return
 	}
